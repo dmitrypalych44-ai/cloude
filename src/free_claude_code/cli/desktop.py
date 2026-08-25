@@ -4,6 +4,9 @@ import threading
 from collections.abc import Callable
 from typing import Protocol
 
+from loguru import logger
+
+from free_claude_code.cli.claude_desktop import configure_claude_desktop_config
 from free_claude_code.cli.commands import (
     ServerStatus,
     ServerSupervisor,
@@ -12,9 +15,11 @@ from free_claude_code.cli.commands import (
     schedule_open_admin_browser,
 )
 from free_claude_code.cli.launchers.common import preflight_proxy
+from free_claude_code.cli.tls_proxy import CaddyTlsProxy
 from free_claude_code.config.loader import get_settings
 from free_claude_code.config.paths import config_dir_path
 from free_claude_code.config.server_urls import local_proxy_root_url
+from free_claude_code.config.settings import Settings
 from free_claude_code.core.interprocess_lock import InterprocessFileLock
 
 
@@ -124,10 +129,14 @@ def launch_desktop(tray_factory: DesktopTrayFactory) -> None:
         open_admin_when_ready(settings)
         return
 
+    tls_proxy = CaddyTlsProxy(settings)
     try:
         if preflight_proxy(local_proxy_root_url(settings)) is None:
             open_admin_when_ready(settings)
             return
+
+        tls_proxy.start()
+        _merge_claude_desktop_config(settings)
 
         supervisor = ServerSupervisor(console_logging=False)
 
@@ -136,4 +145,14 @@ def launch_desktop(tray_factory: DesktopTrayFactory) -> None:
 
         DesktopController(supervisor, tray_factory, open_current_admin).run()
     finally:
+        tls_proxy.stop()
         instance_lock.release()
+
+
+def _merge_claude_desktop_config(settings: Settings) -> None:
+    """Best-effort merge of the Claude Desktop routing block; never fatal."""
+
+    try:
+        configure_claude_desktop_config(settings=settings)
+    except Exception as exc:  # pragma: no cover - defensive; merge already guards
+        logger.warning("Claude Desktop config merge failed: {}", exc)
