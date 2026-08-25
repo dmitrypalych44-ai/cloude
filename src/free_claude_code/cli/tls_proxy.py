@@ -2,10 +2,11 @@
 
 Two cooperating pieces:
 
-1. ``probe_https`` / ``resolve_gateway_base_url`` — detect whether an HTTPS
-   endpoint already answers on the configured TLS port. Any working external
-   front (a system Caddy service, for example) is reused as-is; FCC never
-   touches it.
+1. ``probe_fcc_front`` / ``resolve_gateway_base_url`` — detect whether an
+   HTTPS endpoint that fronts *this* FCC server already answers on the
+   configured TLS port (verified via FCC's unauthenticated ``/health``
+   marker, since an adopted front also receives clients' API keys). Any
+   working external front is reused as-is; FCC never touches it.
 2. ``CaddyTlsProxy`` — when nothing answers and a ``caddy`` binary exists,
    spawn an FCC-managed instance: generated Caddyfile under ``~/.fcc/caddy/``
    with ``tls internal``, admin API disabled, and all of Caddy's state
@@ -13,6 +14,8 @@ Two cooperating pieces:
    server and is stopped alongside it.
 """
 
+import http.client
+import json
 import os
 import shutil
 import ssl
@@ -29,6 +32,16 @@ from free_claude_code.config.settings import Settings
 CADDY_BINARY = "caddy"
 CADDY_HOME_DIRNAME = "caddy"
 READY_TIMEOUT_SECONDS = 10.0
+FCC_HEALTH_MARKER = {"status": "healthy"}
+
+
+def _unverified_context() -> ssl.SSLContext:
+    """TLS context accepting self-signed local certificates."""
+
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
 
 
 def probe_https(url: str, timeout_seconds: float = 1.0) -> bool:
@@ -38,11 +51,10 @@ def probe_https(url: str, timeout_seconds: float = 1.0) -> bool:
     only transport success counts.
     """
 
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
     try:
-        with urllib.request.urlopen(url, timeout=timeout_seconds, context=context):
+        with urllib.request.urlopen(
+            url, timeout=timeout_seconds, context=_unverified_context()
+        ):
             return True
     except urllib.error.HTTPError as exc:
         # Any HTTP status (404/401/502 ...) proves the TLS front is alive;
@@ -51,6 +63,43 @@ def probe_https(url: str, timeout_seconds: float = 1.0) -> bool:
         return True
     except urllib.error.URLError, OSError, ValueError:
         return False
+
+
+def probe_fcc_front(base_url: str, timeout_seconds: float = 1.0) -> bool:
+    """Whether ``base_url`` fronts *this* FCC server, not just any TLS listener.
+
+    Adopting an external front is a trust decision: whatever answers also
+    receives clients' API keys and inference traffic. A listener therefore only
+    counts as an existing front when it serves FCC's unauthenticated
+    ``/health`` marker through the TLS layer — which every reverse proxy in
+    front of FCC passes through untouched.
+    """
+
+    health_url = f"{base_url.rstrip('/')}/health"
+    request = urllib.request.Request(health_url)
+    try:
+        with urllib.request.urlopen(
+            request, timeout=timeout_seconds, context=_unverified_context()
+        ) as response:
+            body = response.read()
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        return False
+    except (
+        urllib.error.URLError,
+        OSError,
+        ValueError,
+        http.client.HTTPException,
+    ):
+        return False
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError, UnicodeDecodeError:
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("status") == FCC_HEALTH_MARKER["status"]
+    )
 
 
 def tls_root_url(settings: Settings) -> str:
@@ -66,7 +115,7 @@ def tls_root_url(settings: Settings) -> str:
 def resolve_gateway_base_url(settings: Settings) -> str:
     """Best gateway base URL: HTTPS when something fronts the TLS port, else HTTP."""
 
-    if settings.tls_proxy_enabled and probe_https(tls_root_url(settings)):
+    if settings.tls_proxy_enabled and probe_fcc_front(tls_root_url(settings)):
         return tls_root_url(settings)
     from free_claude_code.config.server_urls import local_proxy_root_url
 
@@ -131,16 +180,17 @@ class CaddyTlsProxy:
     def start(self) -> bool:
         """Start the managed proxy; returns whether HTTPS is now reachable.
 
-        Reuses an existing external front without spawning anything. Never
-        raises: failures are logged and reported as ``False`` so callers can
-        fall back to plain HTTP.
+        Reuses an existing external front — only after it proves it fronts
+        this FCC server — without spawning anything. Never raises: failures
+        are logged and reported as ``False`` so callers can fall back to
+        plain HTTP.
         """
 
         if not self._settings.tls_proxy_enabled:
             return False
         target = tls_root_url(self._settings)
-        if probe_https(target):
-            logger.info("Reusing existing HTTPS front at {}", target)
+        if probe_fcc_front(target):
+            logger.info("Reusing existing FCC HTTPS front at {}", target)
             return True
 
         binary = shutil.which(CADDY_BINARY)
