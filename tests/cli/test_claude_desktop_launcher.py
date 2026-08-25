@@ -155,6 +155,7 @@ def test_config_path_resolver_returns_default_paths(
 
 def test_launch_runs_subprocess_with_ignore_certificate_errors(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[list[str]] = []
@@ -171,9 +172,12 @@ def test_launch_runs_subprocess_with_ignore_certificate_errors(
 
     monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
     monkeypatch.setattr(routing.subprocess, "Popen", FakeProcess)
+    fake_config = tmp_path / "claude_desktop_config.json"
 
     with pytest.raises(SystemExit) as exc:
-        claude_desktop.launch(["/tmp/some extra path/"])
+        claude_desktop.launch(
+            ["--config-path", str(fake_config), "/tmp/some extra path/"]
+        )
     assert exc.value.code == 0
     assert calls == [
         [
@@ -182,16 +186,82 @@ def test_launch_runs_subprocess_with_ignore_certificate_errors(
             "/tmp/some extra path/",
         ]
     ]
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert data["modelDiscoveryEnabled"] is True
+
+
+def test_launch_merges_config_before_spawning_binary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+
+    class FakeProcess:
+        def __init__(self, _cmd):
+            events.append("spawn")
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", FakeProcess)
+    fake_config = tmp_path / "claude_desktop_config.json"
+    real_save = routing._save_config
+
+    def tracking_save(path: Path, data: dict[str, object]) -> None:
+        events.append("merge")
+        real_save(path, data)
+
+    monkeypatch.setattr(routing, "_save_config", tracking_save)
+
+    with pytest.raises(SystemExit):
+        claude_desktop.launch(["--config-path", str(fake_config)])
+
+    assert events == ["merge", "spawn"]
+
+
+def test_launch_still_spawns_when_merge_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spawned: list[list[str]] = []
+
+    class FakeProcess:
+        def __init__(self, cmd):
+            spawned.append(cmd)
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", FakeProcess)
+
+    def failing_configure(_path: Path) -> bool:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        claude_desktop, "configure_claude_desktop_config", failing_configure
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--config-path", str(tmp_path / "absent.json")])
+
+    assert exc.value.code == 0
+    assert len(spawned) == 1
+    captured = capsys.readouterr()
+    assert "could not merge the FCC routing block" in captured.err
 
 
 def test_launch_exits_127_when_binary_missing(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(routing.shutil, "which", lambda _: None)
 
     with pytest.raises(SystemExit) as exc:
-        claude_desktop.launch([])
+        claude_desktop.launch(["--config-path", str(tmp_path / "absent.json")])
     assert exc.value.code == 127
     captured = capsys.readouterr()
     assert "claude-desktop" in captured.err

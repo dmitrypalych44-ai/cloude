@@ -73,6 +73,11 @@ def launch(argv: Sequence[str] | None = None) -> None:
         return
 
     try:
+        configure_claude_desktop_config(parsed.config_path)
+    except OSError as exc:
+        print(f"Warning: could not merge the FCC routing block: {exc}", file=sys.stderr)
+
+    try:
         process = routing.launch_binary(tuple(parsed.binary_args))
     except FileNotFoundError:
         print(

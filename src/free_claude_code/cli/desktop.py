@@ -15,7 +15,7 @@ from free_claude_code.cli.commands import (
     schedule_open_admin_browser,
 )
 from free_claude_code.cli.launchers.common import preflight_proxy
-from free_claude_code.cli.tls_proxy import CaddyTlsProxy
+from free_claude_code.cli.tls_proxy import CaddyTlsProxy, probe_https, tls_root_url
 from free_claude_code.config.loader import get_settings
 from free_claude_code.config.paths import config_dir_path
 from free_claude_code.config.server_urls import local_proxy_root_url
@@ -132,11 +132,17 @@ def launch_desktop(tray_factory: DesktopTrayFactory) -> None:
     tls_proxy = CaddyTlsProxy(settings)
     try:
         if preflight_proxy(local_proxy_root_url(settings)) is None:
+            _merge_when_https_front_exists(settings)
             open_admin_when_ready(settings)
             return
 
-        tls_proxy.start()
-        _merge_claude_desktop_config(settings)
+        if tls_proxy.start():
+            _merge_claude_desktop_config(settings)
+        else:
+            logger.warning(
+                "Skipping Claude Desktop config merge: no HTTPS front is "
+                "available for the desktop gateway.",
+            )
 
         supervisor = ServerSupervisor(console_logging=False)
 
@@ -156,3 +162,15 @@ def _merge_claude_desktop_config(settings: Settings) -> None:
         configure_claude_desktop_config(settings=settings)
     except Exception as exc:  # pragma: no cover - defensive; merge already guards
         logger.warning("Claude Desktop config merge failed: {}", exc)
+
+
+def _merge_when_https_front_exists(settings: Settings) -> None:
+    """Attach an already-running FCC server to Claude Desktop when it has a front.
+
+    A second desktop launch never spawns its own TLS proxy: whichever process
+    owns the healthy server owns the front too, so only an existing one is
+    reused here. Without HTTPS, Claude Desktop cannot reach plain HTTP anyway.
+    """
+
+    if probe_https(tls_root_url(settings)):
+        _merge_claude_desktop_config(settings)

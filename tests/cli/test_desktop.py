@@ -247,6 +247,80 @@ def test_desktop_attaches_to_terminal_server_instead_of_binding_twice() -> None:
     instance_lock.release.assert_called_once_with()
 
 
+def test_existing_server_with_https_front_gets_routing_merge() -> None:
+    from free_claude_code.cli import desktop
+
+    settings = _settings()
+    instance_lock = MagicMock()
+    instance_lock.acquire.return_value = True
+
+    with (
+        patch.object(desktop, "load_server_settings", return_value=settings),
+        patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
+        patch.object(desktop, "preflight_proxy", return_value=None),
+        patch.object(desktop, "probe_https", return_value=True),
+        patch.object(desktop, "_merge_claude_desktop_config") as merge,
+        patch.object(desktop, "open_admin_when_ready", return_value=True),
+        patch.object(desktop, "ServerSupervisor"),
+        patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
+    ):
+        desktop.launch_desktop(MagicMock())
+
+    merge.assert_called_once_with(settings)
+    tls_proxy.return_value.start.assert_not_called()
+    instance_lock.release.assert_called_once_with()
+
+
+def test_existing_server_without_https_front_is_left_unmerged() -> None:
+    from free_claude_code.cli import desktop
+
+    settings = _settings()
+    instance_lock = MagicMock()
+    instance_lock.acquire.return_value = True
+
+    with (
+        patch.object(desktop, "load_server_settings", return_value=settings),
+        patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
+        patch.object(desktop, "preflight_proxy", return_value=None),
+        patch.object(desktop, "probe_https", return_value=False),
+        patch.object(desktop, "_merge_claude_desktop_config") as merge,
+        patch.object(desktop, "open_admin_when_ready", return_value=True),
+        patch.object(desktop, "ServerSupervisor"),
+        patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
+    ):
+        desktop.launch_desktop(MagicMock())
+
+    merge.assert_not_called()
+    tls_proxy.return_value.start.assert_not_called()
+    instance_lock.release.assert_called_once_with()
+
+
+def test_fresh_launch_skips_merge_when_no_https_front_comes_up() -> None:
+    from free_claude_code.cli import desktop
+
+    settings = _settings()
+    instance_lock = MagicMock()
+    instance_lock.acquire.return_value = True
+    supervisor = MagicMock()
+    controller = MagicMock()
+
+    with (
+        patch.object(desktop, "load_server_settings", return_value=settings),
+        patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
+        patch.object(desktop, "preflight_proxy", return_value="connection refused"),
+        patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
+        patch.object(desktop, "_merge_claude_desktop_config") as merge,
+        patch.object(desktop, "ServerSupervisor", return_value=supervisor),
+        patch.object(desktop, "DesktopController", return_value=controller),
+    ):
+        tls_proxy.return_value.start.return_value = False
+        desktop.launch_desktop(MagicMock())
+
+    merge.assert_not_called()
+    controller.run.assert_called_once_with()
+    instance_lock.release.assert_called_once_with()
+
+
 def test_fresh_desktop_launch_uses_console_free_supervisor() -> None:
     from free_claude_code.cli import desktop
 
