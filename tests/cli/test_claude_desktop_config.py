@@ -176,31 +176,121 @@ def test_load_existing_config_raises_malformed_error(tmp_path: Path) -> None:
         claude_desktop.load_existing_config(path)
 
 
+def test_unconfigure_restores_pre_merge_values(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    original = {
+        "preferences": {"theme": "dark"},
+        "modelDiscoveryEnabled": False,
+        "inference": {"provider": "anthropic", "extra_user_key": "stay"},
+    }
+    fake_config.write_text(json.dumps(original), encoding="utf-8")
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    assert json.loads(fake_config.read_text(encoding="utf-8")) == original
+
+
+def test_unconfigure_without_record_leaves_config_untouched(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Settings FCC never wrote must survive ``--unconfigure``."""
+
+    managed = claude_desktop.fcc_managed_block(fake_settings)
+    preexisting = {
+        "modelDiscoveryEnabled": True,
+        "inference": managed | {"extra_user_key": "stay"},
+    }
+    fake_config.write_text(json.dumps(preexisting), encoding="utf-8")
+
+    # Configure finds nothing to change, so FCC owns nothing.
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is False
+    )
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is False
+
+    assert json.loads(fake_config.read_text(encoding="utf-8")) == preexisting
+
+
 def test_unconfigure_drops_only_fcc_keys(
     fake_config: Path,
     fake_settings: Settings,
 ) -> None:
-    managed = claude_desktop.fcc_managed_block(fake_settings)
     fake_config.write_text(
-        json.dumps(
-            {
-                "preferences": {"theme": "dark"},
-                "modelDiscoveryEnabled": True,
-                "inference": managed | {"extra_user_key": "stay"},
-            }
-        ),
+        json.dumps({"preferences": {"theme": "dark"}, "inference": {}}),
         encoding="utf-8",
     )
 
-    changed = claude_desktop.unconfigure_claude_desktop_config(
-        fake_config, settings=fake_settings
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
     )
+    changed = claude_desktop.unconfigure_claude_desktop_config(fake_config)
 
     assert changed is True
     data = json.loads(fake_config.read_text(encoding="utf-8"))
     assert "modelDiscoveryEnabled" not in data
-    assert data["inference"] == {"extra_user_key": "stay"}
+    assert data["inference"] == {}
     assert data["preferences"] == {"theme": "dark"}
+    assert not claude_desktop._record_path(fake_config).exists()
+
+
+def test_unconfigure_ignores_malformed_ownership_record(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    original = '{"modelDiscoveryEnabled": true}'
+    fake_config.write_text(original, encoding="utf-8")
+    claude_desktop._record_path(fake_config).write_text("{corrupt", encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is False
+
+    assert fake_config.read_text(encoding="utf-8") == original
+
+
+def test_configure_keeps_earliest_snapshot_across_repeated_merges(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    fake_config.write_text(
+        json.dumps({"inference": {"user": "value"}}), encoding="utf-8"
+    )
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+    # A second merge with different settings must not clobber the snapshot.
+    rotated = fake_settings.model_copy(update={"proxy_auth_token": "tok-456"})
+    assert (
+        claude_desktop.configure_claude_desktop_config(fake_config, settings=rotated)
+        is True
+    )
+
+    record = json.loads(
+        claude_desktop._record_path(fake_config).read_text(encoding="utf-8")
+    )
+    assert record["inference"]["value"] == {"user": "value"}
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+    assert json.loads(fake_config.read_text(encoding="utf-8")) == {
+        "inference": {"user": "value"}
+    }
 
 
 def test_unconfigure_roundtrip_is_clean_noop(
@@ -213,23 +303,37 @@ def test_unconfigure_roundtrip_is_clean_noop(
         )
         is True
     )
-    assert (
-        claude_desktop.unconfigure_claude_desktop_config(
-            fake_config, settings=fake_settings
-        )
-        is True
-    )
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
 
     data = json.loads(fake_config.read_text(encoding="utf-8"))
     assert data == {}
 
     # Second passes are no-ops.
-    assert (
-        claude_desktop.unconfigure_claude_desktop_config(
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is False
+
+
+def test_configure_write_failure_leaves_existing_config_intact(
+    fake_config: Path,
+    fake_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed save (e.g. read-only directory) must not corrupt the config."""
+
+    original = json.dumps({"preferences": {"theme": "dark"}})
+    fake_config.parent.mkdir(parents=True, exist_ok=True)
+    fake_config.write_text(original, encoding="utf-8")
+
+    def refuse_write(path: Path, data: dict[str, object]) -> None:
+        raise PermissionError(path)
+
+    monkeypatch.setattr(claude_desktop, "_save_config", refuse_write)
+
+    with pytest.raises(PermissionError):
+        claude_desktop.configure_claude_desktop_config(
             fake_config, settings=fake_settings
         )
-        is False
-    )
+
+    assert fake_config.read_text(encoding="utf-8") == original
 
 
 def test_unconfigure_silent_on_missing_file(tmp_path: Path) -> None:
@@ -271,9 +375,11 @@ def test_main_configure_writes_block_without_subprocess(
     assert data["modelDiscoveryEnabled"] is True
 
 
-def test_launch_binary_spawns_with_certificate_flag(
+def test_launch_binary_spawns_binary_without_certificate_bypass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """TLS trust comes from the NSS-installed CA, not a Chromium bypass flag."""
+
     calls: list[list[str]] = []
 
     class FakeProcess:
@@ -285,7 +391,8 @@ def test_launch_binary_spawns_with_certificate_flag(
 
     claude_desktop.launch_binary(["--extra"])
 
-    assert calls == [["/usr/bin/claude", "--ignore-certificate-errors", "--extra"]]
+    assert calls == [["/usr/bin/claude", "--extra"]]
+    assert all("--ignore-certificate-errors" not in cmd for cmd in calls)
 
 
 def test_launch_binary_raises_when_binary_missing(

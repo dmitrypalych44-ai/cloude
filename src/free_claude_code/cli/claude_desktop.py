@@ -6,10 +6,11 @@ Two responsibilities:
    ``claude_desktop_config.json`` so Claude Desktop's model picker runs
    ``/v1/models`` discovery against the local FCC server. The gateway URL
    and auth key are derived from server settings, never hardcoded.
-   ``unconfigure`` reverses the merge, preserving every other key.
-2. Locate the Claude Desktop binary and spawn it with
-   ``--ignore-certificate-errors`` (harmless on plain HTTP, required when
-   the user fronts FCC with a self-signed TLS proxy).
+   ``unconfigure`` reverses the merge by restoring exactly what configure
+   inserted or overwrote, tracked in an ownership record beside the config.
+2. Locate the Claude Desktop binary and spawn it. TLS trust for the local
+   FCC front comes from the certificate the install scripts add to the
+   per-user NSS store; no process-wide certificate bypass is used.
 
 The desktop controller applies the merge automatically at startup, and the
 tray exposes a "Launch Claude Desktop" item built on the same helpers.
@@ -22,6 +23,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypedDict
 
 from loguru import logger
 
@@ -121,6 +123,60 @@ def _save_config(path: Path, data: dict[str, object]) -> None:
     tmp_path.replace(path)
 
 
+class _OwnershipEntry(TypedDict):
+    """Pre-merge state of one managed config key."""
+
+    present: bool
+    value: object
+
+
+_RECORD_SUFFIX = ".fcc-merge.json"
+
+
+def _record_path(config_path: Path) -> Path:
+    """Sidecar recording what configure inserted or overwrote."""
+
+    return config_path.with_name(config_path.name + _RECORD_SUFFIX)
+
+
+def _ownership_record(data: dict[str, object]) -> dict[str, object]:
+    """Snapshot every managed key so unconfigure can restore exactly it."""
+
+    def entry(key: str) -> _OwnershipEntry:
+        if key in data:
+            return {"present": True, "value": data[key]}
+        return {"present": False, "value": None}
+
+    return {key: entry(key) for key in (_DISCOVERY_KEY, _INFERENCE_KEY)}
+
+
+def _load_ownership_record(path: Path) -> dict[str, _OwnershipEntry] | None:
+    """Read the ownership sidecar; ``None`` when missing or malformed."""
+
+    if not path.exists():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(loaded, dict):
+        return None
+
+    record: dict[str, _OwnershipEntry] = {}
+    for key in (_DISCOVERY_KEY, _INFERENCE_KEY):
+        raw = loaded.get(key)
+        if not isinstance(raw, dict):
+            return None
+        present = raw.get("present")
+        if not isinstance(present, bool):
+            return None
+        if present and "value" not in raw:
+            return None
+        record[key] = {"present": present, "value": raw.get("value")}
+    return record
+
+
 def configure_claude_desktop_config(
     path: Path | None = None,
     settings: Settings | None = None,
@@ -128,8 +184,10 @@ def configure_claude_desktop_config(
 ) -> bool:
     """Merge the FCC routing block into ``path``. Returns whether anything changed.
 
-    Returns ``False`` without writing when the existing config is malformed
-    (invalid JSON or non-object root). Creates a new config when absent.
+    Records the pre-merge values of the managed keys in a sidecar so a later
+    ``unconfigure`` restores exactly them. Returns ``False`` without writing
+    when the existing config is malformed (invalid JSON or non-object root).
+    Creates a new config when absent.
     """
 
     resolved_settings = settings or get_settings()
@@ -137,8 +195,10 @@ def configure_claude_desktop_config(
     config_path = path or _config_path()
     try:
         data: dict[str, object] = load_existing_config(config_path)
+        existed = True
     except FileNotFoundError:
         data = {}
+        existed = False
     except MalformedConfigError as exc:
         logger.warning(
             "Skipping FCC config merge: malformed config at {}: {}",
@@ -146,6 +206,8 @@ def configure_claude_desktop_config(
             exc.reason,
         )
         return False
+
+    prior = _ownership_record(data)
 
     changed = False
 
@@ -169,24 +231,27 @@ def configure_claude_desktop_config(
         changed = True
 
     if changed:
+        record_path = _record_path(config_path)
+        if not existed or not record_path.exists():
+            # Keep the earliest pre-merge snapshot; later merges must not
+            # clobber the values unconfigure is supposed to restore.
+            _save_config(record_path, prior)
         _save_config(config_path, data)
     return changed
 
 
-def unconfigure_claude_desktop_config(
-    path: Path | None = None,
-    settings: Settings | None = None,
-    gateway_base_url: str | None = None,
-) -> bool:
-    """Reverse the merge. Preserves every key outside the FCC-managed surface.
+def unconfigure_claude_desktop_config(path: Path | None = None) -> bool:
+    """Reverse the merge recorded by ``configure`` for ``path``.
 
-    ``gateway_base_url`` must match the value a previous ``configure`` wrote.
-    Returns ``False`` without writing when the existing config is malformed,
-    or silently when the file does not exist.
+    Only the managed surface FCC actually touched is restored: values that
+    existed before configure come back verbatim from the ownership record,
+    keys FCC inserted are removed, and every other key is preserved. With no
+    valid record nothing is owned by FCC, so the config is left untouched
+    and ``False`` is returned. Also returns ``False`` without writing when
+    the existing config or record is malformed, or silently when the file
+    does not exist.
     """
 
-    resolved_settings = settings or get_settings()
-    managed = fcc_managed_block(resolved_settings, gateway_base_url)
     config_path = path or _config_path()
     if not config_path.exists():
         return False
@@ -200,32 +265,29 @@ def unconfigure_claude_desktop_config(
         )
         return False
 
+    record_path = _record_path(config_path)
+    record = _load_ownership_record(record_path)
+    if record is None:
+        logger.warning(
+            "Skipping FCC config unmerge: no FCC ownership record at {}",
+            record_path,
+        )
+        return False
+
     changed = False
 
-    if _DISCOVERY_KEY in data:
-        del data[_DISCOVERY_KEY]
-        changed = True
-
-    if _INFERENCE_KEY in data:
-        inference = data[_INFERENCE_KEY]
-        if isinstance(inference, dict):
-            inference_dict: dict[str, object] = {}
-            for key, value in inference.items():
-                inference_dict[str(key)] = value
-            for key, value in managed.items():
-                if key in inference_dict and inference_dict[key] == value:
-                    del inference_dict[key]
-                    changed = True
-            if inference_dict:
-                data[_INFERENCE_KEY] = inference_dict
-            else:
-                del data[_INFERENCE_KEY]
-        else:
-            del data[_INFERENCE_KEY]
+    for key, entry in record.items():
+        if entry["present"]:
+            if key not in data or data[key] != entry["value"]:
+                data[key] = entry["value"]
+                changed = True
+        elif key in data:
+            del data[key]
             changed = True
 
     if changed:
         _save_config(config_path, data)
+        record_path.unlink()
     return changed
 
 
@@ -244,16 +306,17 @@ def find_binary() -> str | None:
 def launch_binary(
     extra_args: Sequence[str] = (),
 ) -> subprocess.Popen[bytes]:
-    """Spawn Claude Desktop with the certificate-tolerance flag."""
+    """Spawn Claude Desktop.
+
+    TLS trust for the local FCC front is provided by the certificate the
+    install scripts add to the per-user NSS store, so no process-wide
+    certificate bypass flag is passed.
+    """
 
     binary_path = find_binary()
     if binary_path is None:
         raise FileNotFoundError(CLAUDE_DESKTOP_BINARY)
-    command: list[str] = [
-        binary_path,
-        "--ignore-certificate-errors",
-        *extra_args,
-    ]
+    command: list[str] = [binary_path, *extra_args]
     return subprocess.Popen(command)
 
 
