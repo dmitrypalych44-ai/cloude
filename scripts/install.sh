@@ -18,8 +18,9 @@ RTK_RELEASE_BASE_URL="https://github.com/rtk-ai/rtk/releases/download/v$RTK_VERS
 UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 FCC_MACOS_BUNDLE_ID="io.github.alishahryar1.free-claude-code"
 FCC_MACOS_OWNER_FILE=".free-claude-code-owner"
+FCC_LINUX_DESKTOP_MARKER="# Owned by Free Claude Code. Remove this line to unclaim."
 # Include retired entry points so updates reject older FCC processes before replacement.
-FCC_COMMANDS="fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse fcc-init free-claude-code"
+FCC_COMMANDS="fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse fcc-init fcc-claude-desktop free-claude-code"
 
 dry_run=0
 voice_nim=0
@@ -1126,11 +1127,131 @@ configure_and_verify_free_claude_code() {
     export PATH
     hash -r 2>/dev/null || true
 
-    for command_name in fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse; do
+    for command_name in fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse fcc-claude-desktop; do
         [ -x "$tool_bin/$command_name" ] || fail "Free Claude Code installation did not create $tool_bin/$command_name."
     done
 
     run "$tool_bin/fcc-server" --version
+
+    configure_claude_desktop_app
+}
+
+configure_claude_desktop_app() {
+    # Best-effort: write the FCC 3P-gateway block into the user's
+    # ``claude_desktop_config.json`` so Claude Desktop's model picker
+    # discovers every NIM/OpenRouter model exposed by FCC. Delegate JSON
+    # parsing to the Python helper installed by ``uv tool install`` so the
+    # script doesn't depend on ``jq``.
+    if [ "$dry_run" -eq 1 ]; then
+        print_command "$tool_bin/python3" -m \
+            free_claude_code.cli.launchers.claude_desktop --configure
+        return 0
+    fi
+
+    configure_status=0
+    "$tool_bin/python3" -m \
+        free_claude_code.cli.launchers.claude_desktop --configure \
+        || configure_status=$?
+    if [ "$configure_status" -ne 0 ]; then
+        printf 'warning: Failed to auto-configure Claude Desktop (exit code %d). Run `fcc-claude-desktop --configure` manually.\n' "$configure_status" >&2
+    fi
+
+    install_claude_desktop_cert
+}
+
+install_claude_desktop_cert() {
+    # Electron's TLS stack does not reliably honor NODE_TLS_REJECT_UNAUTHORIZED
+    # nor the operating system certificate store: Chromium-based apps read the
+    # per-user NSS database (~/.pki/nssdb). Best-effort, never fatal: pick the
+    # active Caddy certificate and trust it in both stores so users who launch
+    # ``claude-desktop`` directly (or via ``fcc-claude-desktop``) see FCC as
+    # trusted.
+    cert_src=""
+    for candidate in \
+        "/etc/caddy/localhost+2.pem" \
+        "${FCC_CONFIG_HOME:-$HOME/.fcc}/caddy/data/caddy/pki/authorities/local/root.crt"; do
+        if [ -f "$candidate" ]; then
+            cert_src="$candidate"
+            break
+        fi
+    done
+    if [ -z "$cert_src" ]; then
+        return 0
+    fi
+
+    install_claude_desktop_cert_nss
+    install_claude_desktop_cert_system
+}
+
+trust_cert_in_nss_db() {
+    nss_dir=$1
+    nss_profile_dir="$nss_dir/nssdb"
+    [ -d "$nss_profile_dir" ] || mkdir -p "$nss_profile_dir" || return 0
+    if [ ! -f "$nss_profile_dir/cert9.db" ]; then
+        certutil -N -d "sql:$nss_profile_dir" --empty-password >/dev/null 2>&1 || return 0
+    fi
+    certutil -A -d "sql:$nss_profile_dir" -t "C,," -n "FCC-Caddy" -i "$cert_src" >/dev/null 2>&1 || {
+        printf 'note: could not add FCC certificate to %s — Claude Desktop may prompt about TLS.\n' "$nss_profile_dir" >&2
+    }
+}
+
+install_claude_desktop_cert_nss() {
+    # Chromium/Electron TLS uses the NSS user database. No root required.
+    command -v certutil >/dev/null 2>&1 || {
+        printf 'note: certutil (libnss3-tools) not found — skipping NSS trust for Claude Desktop.\n' >&2
+        return 0
+    }
+
+    if [ "$dry_run" -eq 1 ]; then
+        print_command certutil -A -d "sql:$HOME/.pki/nssdb" -t "C,," -n "FCC-Caddy" -i "$cert_src"
+        return 0
+    fi
+
+    trust_cert_in_nss_db "$HOME/.pki"
+    firefox_home="$HOME/.mozilla/firefox"
+    if [ -d "$firefox_home" ]; then
+        for profile_dir in "$firefox_home"/*/;
+        do
+            [ -f "${profile_dir}cert9.db" ] || continue
+            certutil -A -d "sql:${profile_dir%/}" -t "C,," -n "FCC-Caddy" -i "$cert_src" >/dev/null 2>&1 || true
+        done
+    fi
+}
+
+install_claude_desktop_cert_system() {
+    case "$cert_src" in
+        /etc/caddy/*) cert_dst="/usr/local/share/ca-certificates/fcc-caddy-localhost.crt" ;;
+        *) cert_dst="/usr/local/share/ca-certificates/fcc-caddy-root.crt" ;;
+    esac
+    if [ -e "$cert_dst" ] && cmp -s "$cert_src" "$cert_dst"; then
+        return 0
+    fi
+
+    if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+        printf 'note: skipping system cert trust step (%s requires root or sudo).\n' "$cert_src" >&2
+        return 0
+    fi
+
+    copy_cmd="cp"
+    update_cmd="update-ca-certificates"
+    if [ "$(id -u)" -ne 0 ]; then
+        copy_cmd="sudo cp"
+        update_cmd="sudo update-ca-certificates"
+    fi
+
+    if [ "$dry_run" -eq 1 ]; then
+        print_command "$copy_cmd" "$cert_src" "$cert_dst"
+        print_command "$update_cmd" --fresh
+        return 0
+    fi
+
+    if ! $copy_cmd "$cert_src" "$cert_dst" 2>/dev/null; then
+        printf 'note: cert trust step failed (cp returned %d) — claude-desktop TLS may still reject Caddy.\n' "$?" >&2
+        return 0
+    fi
+    if ! $update_cmd --fresh >/dev/null 2>&1; then
+        printf 'note: update-ca-certificates failed — claude-desktop TLS may still reject Caddy.\n' >&2
+    fi
 }
 
 shell_quote() {
@@ -1222,6 +1343,51 @@ PLIST
     ln -s "$app_dir" "$desktop_link"
 }
 
+linux_desktop_entry_is_fcc_owned() {
+    entry_file=$1
+    [ -f "$entry_file" ] &&
+        [ "$(head -n 1 "$entry_file")" = "$FCC_LINUX_DESKTOP_MARKER"
+    ]
+}
+
+install_linux_desktop_entry() {
+    [ "$(uname -s)" = "Linux" ] || return 0
+
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    applications_dir="$data_home/applications"
+    icons_dir="$data_home/icons"
+    entry_file="$applications_dir/free-claude-code.desktop"
+    icon_path="$icons_dir/free-claude-code.png"
+
+    if [ -e "$entry_file" ] &&
+        ! linux_desktop_entry_is_fcc_owned "$entry_file"; then
+        printf 'A non-FCC launcher already exists at %s; leaving it unchanged.\n' "$entry_file"
+        return 0
+    fi
+
+    if [ "$dry_run" -eq 1 ]; then
+        print_command mkdir -p "$applications_dir" "$icons_dir"
+        print_command fcc-desktop --export-icon "$icon_path"
+        printf '+ write %s\n' "$entry_file"
+        return 0
+    fi
+
+    mkdir -p "$applications_dir" "$icons_dir"
+    run "$tool_bin/fcc-desktop" --export-icon "$icon_path"
+    [ -f "$icon_path" ] || fail "Free Claude Code did not export its desktop icon to $icon_path."
+    {
+        printf '%s\n' "$FCC_LINUX_DESKTOP_MARKER"
+        printf '[Desktop Entry]\n'
+        printf 'Type=Application\n'
+        printf 'Name=Free Claude Code\n'
+        printf 'Comment=Run the Free Claude Code proxy in the background\n'
+        printf 'Exec=%s\n' "$(shell_quote "$tool_bin/fcc-desktop")"
+        printf 'Icon=%s\n' "$icon_path"
+        printf 'Terminal=false\n'
+        printf 'Categories=Development;\n'
+    } > "$entry_file"
+}
+
 parse_args "$@"
 validate_args
 add_known_bin_directories
@@ -1278,6 +1444,9 @@ configure_and_verify_free_claude_code
 if [ "$(uname -s)" = "Darwin" ]; then
     step "Installing the Free Claude Code desktop launcher"
     install_macos_desktop_app
+elif [ "$(uname -s)" = "Linux" ]; then
+    step "Installing the Free Claude Code desktop launcher"
+    install_linux_desktop_entry
 fi
 
 if [ "$dry_run" -eq 1 ]; then
@@ -1286,6 +1455,8 @@ else
     if [ "$(uname -s)" = "Darwin" ]; then
         printf '\nFree Claude Code is installed and verified. Open Free Claude Code from Applications or the desktop to run it in the background.\n'
         printf 'For terminal use, start the proxy with: fcc-server\n'
+    elif [ "$(uname -s)" = "Linux" ] && [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/free-claude-code.desktop" ]; then
+        printf '\nFree Claude Code is installed and verified. Open Free Claude Code from your application launcher to run it in the background, or start the proxy with: fcc-server\n'
     else
         printf '\nFree Claude Code is installed and verified. Start the proxy with: fcc-server\n'
     fi

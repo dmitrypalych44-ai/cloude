@@ -5,8 +5,9 @@ PACKAGE_NAME="free-claude-code"
 FCC_HOME_DIRNAME=".fcc"
 FCC_MACOS_BUNDLE_ID="io.github.alishahryar1.free-claude-code"
 FCC_MACOS_OWNER_FILE=".free-claude-code-owner"
+FCC_LINUX_DESKTOP_MARKER="# Owned by Free Claude Code. Remove this line to unclaim."
 # Include retired entry points so older installations are fully stopped and removed.
-FCC_COMMANDS="fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse fcc-init free-claude-code"
+FCC_COMMANDS="fcc-desktop fcc-server fcc-claude fcc-codex fcc-pi fcc-opencode fcc-cline fcc-hermes fcc-dsh fcc-grok fcc-muse fcc-init fcc-claude-desktop free-claude-code"
 
 dry_run=0
 uv_tool_bin=""
@@ -241,6 +242,55 @@ remove_macos_desktop_app() {
     fi
 }
 
+remove_linux_desktop_entry() {
+    [ "$(uname -s)" = "Linux" ] || return 0
+
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    entry_file="$data_home/applications/free-claude-code.desktop"
+    icon_path="$data_home/icons/free-claude-code.png"
+
+    if [ ! -e "$entry_file" ] && [ ! -e "$icon_path" ]; then
+        return 0
+    fi
+
+    if [ -e "$entry_file" ]; then
+        if [ "$(head -n 1 "$entry_file")" = "$FCC_LINUX_DESKTOP_MARKER" ]; then
+            run rm -f "$entry_file"
+        else
+            printf 'A launcher not managed by Free Claude Code exists at %s; leaving it unchanged.\n' "$entry_file"
+        fi
+    fi
+    if [ -f "$icon_path" ] && [ ! -L "$icon_path" ]; then
+        run rm -f "$icon_path"
+    fi
+}
+
+unconfigure_claude_desktop_config() {
+    # Reverse the merge applied by the installer so Claude Desktop stops
+    # forwarding requests to FCC after this tool is gone. Best-effort: a
+    # non-zero exit is logged but does not fail the uninstall.
+    python_bin="$uv_tool_bin/python3"
+    if [ "$dry_run" -eq 1 ]; then
+        if [ -x "$python_bin" ]; then
+            print_command "$python_bin" -m \
+                free_claude_code.cli.launchers.claude_desktop --unconfigure
+        else
+            printf '+ skip Claude Desktop --unconfigure (uv tool bin already gone)\n'
+        fi
+        return 0
+    fi
+
+    if [ ! -x "$python_bin" ]; then
+        # Tool already removed; helper no longer reachable.
+        return 0
+    fi
+
+    if ! "$python_bin" -m \
+            free_claude_code.cli.launchers.claude_desktop --unconfigure 2>/dev/null; then
+        printf 'warning: Failed to auto-unconfigure Claude Desktop (exit code %d). Run `fcc-claude-desktop --unconfigure` manually.\n' "$?" >&2
+    fi
+}
+
 purge_fcc_home() {
     fcc_home="$HOME/$FCC_HOME_DIRNAME"
     if [ ! -e "$fcc_home" ]; then
@@ -282,6 +332,9 @@ assert_no_fcc_processes_running
 step "Locating the uv-managed Free Claude Code installation"
 initialize_uv_context
 
+step "Reversing the Claude Desktop routing block"
+unconfigure_claude_desktop_config
+
 step "Removing the Free Claude Code uv tool"
 uninstall_free_claude_code
 
@@ -290,6 +343,7 @@ verify_fcc_commands_removed
 
 step "Removing the Free Claude Code desktop launcher"
 remove_macos_desktop_app
+remove_linux_desktop_entry
 
 step "Purging FCC config and data from ~/.fcc"
 purge_fcc_home
