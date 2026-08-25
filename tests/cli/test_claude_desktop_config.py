@@ -1,6 +1,7 @@
 """Tests for the Claude Desktop config merge and binary launch helpers."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -285,12 +286,61 @@ def test_configure_keeps_earliest_snapshot_across_repeated_merges(
     record = json.loads(
         claude_desktop._record_path(fake_config).read_text(encoding="utf-8")
     )
-    assert record["inference"]["value"] == {"user": "value"}
+    # The earliest snapshot had no managed keys; a clobbering second
+    # snapshot would have recorded the values from the first merge.
+    assert record["inferenceKeys"]["provider"] == {"present": False, "value": None}
 
     assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
     assert json.loads(fake_config.read_text(encoding="utf-8")) == {
         "inference": {"user": "value"}
     }
+
+
+def test_unconfigure_keeps_inference_keys_added_after_configure(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Unconfiguration must not remove inference entries FCC never touched."""
+
+    fake_config.write_text(json.dumps({"inference": {}}), encoding="utf-8")
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"]["userAddedAfterConfigure"] = "keep"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert result["inference"] == {"userAddedAfterConfigure": "keep"}
+
+
+def test_save_config_writes_owner_only_permissions(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """The token-bearing block must stay 0o600 even under a permissive umask."""
+
+    old_umask = os.umask(0o000)
+    try:
+        assert (
+            claude_desktop.configure_claude_desktop_config(
+                fake_config, settings=fake_settings
+            )
+            is True
+        )
+    finally:
+        os.umask(old_umask)
+
+    assert (fake_config.stat().st_mode & 0o777) == 0o600
+    record = claude_desktop._record_path(fake_config)
+    assert (record.stat().st_mode & 0o777) == 0o600
 
 
 def test_unconfigure_roundtrip_is_clean_noop(
