@@ -703,6 +703,10 @@ class Settings(BaseModel):
         default="freecc",
         validation_alias="ANTHROPIC_AUTH_TOKEN",
     )
+    desktop_gateway_prefix: NonEmptyString = Field(
+        default="claude-desktop",
+        validation_alias="DESKTOP_GATEWAY_PREFIX",
+    )
 
     @field_validator("max_message_log_entries_per_chat", mode="before")
     @classmethod
