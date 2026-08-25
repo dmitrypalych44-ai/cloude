@@ -708,6 +708,15 @@ class Settings(BaseModel):
         validation_alias="DESKTOP_GATEWAY_PREFIX",
     )
 
+    @field_validator("desktop_gateway_prefix")
+    @classmethod
+    def normalize_desktop_gateway_prefix(cls, v: str) -> str:
+        """Strip boundary slashes so the prefix mounts as a single ``/{prefix}``."""
+        prefix = v.strip("/")
+        if not prefix:
+            raise ValueError("DESKTOP_GATEWAY_PREFIX must contain a path segment")
+        return prefix
+
     @field_validator("max_message_log_entries_per_chat", mode="before")
     @classmethod
     def parse_optional_log_cap(cls, v: object) -> object:

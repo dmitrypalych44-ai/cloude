@@ -72,6 +72,32 @@ def test_custom_prefix_is_honored_from_settings() -> None:
     assert any(m["id"].startswith("claude-sonnet-nim") for m in prefixed.json()["data"])
 
 
+def test_prefix_with_boundary_slashes_is_normalized() -> None:
+    """FastAPI rejects router prefixes ending in '/', so a configured value
+    like '/desktop/' must be normalized or app startup crashes."""
+    settings = Settings(desktop_gateway_prefix="/desktop/")
+    settings.model = "deepseek/deepseek-chat"
+    settings.model_fable = None
+    settings.model_opus = None
+    settings.model_sonnet = None
+    settings.model_haiku = None
+
+    response = TestClient(create_test_app(settings)).get("/desktop/v1/models")
+
+    assert response.status_code == 200
+    assert any(m["id"].startswith("claude-sonnet-nim") for m in response.json()["data"])
+
+
+def test_lookalike_prefixed_path_does_not_serve_aliases() -> None:
+    """Only the exact desktop prefix mount emits aliases; paths that merely
+    start with the same text must never leak picker aliases."""
+    app = create_test_app(_settings())
+
+    response = TestClient(app).get("/claude-desktop-evil/v1/models")
+
+    assert response.status_code == 404
+
+
 def test_messages_round_trip_works_under_desktop_prefix() -> None:
     """Claude Desktop chats against the prefixed base URL, so the full API
     surface must exist under the prefix too."""
