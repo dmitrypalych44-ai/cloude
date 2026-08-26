@@ -583,3 +583,104 @@ def test_ensure_configured_and_launch_merges_then_spawns(
 
     assert order[0] == "configure"
     assert order[1].startswith("spawn:")
+
+
+def test_unconfigure_preserves_user_replaced_object_over_scalar_root(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """A user object replacing FCC's generated mapping survives unconfigure."""
+
+    fake_config.write_text(json.dumps({"inference": "legacy-scalar"}), encoding="utf-8")
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    replacement = {"provider": "user-choice", "model": "user-model"}
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"] = dict(replacement)
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert result["inference"] == replacement
+    assert "modelDiscoveryEnabled" not in result
+
+
+def test_unconfigure_preserves_user_deleted_entry_over_scalar_root(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Deleting ``inference`` wholesale after a scalar clobber is respected."""
+
+    fake_config.write_text(json.dumps({"inference": "legacy-scalar"}), encoding="utf-8")
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    del data["inference"]
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert "inference" not in result
+
+
+def test_unconfigure_respects_user_edited_discovery_key(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """A post-merge user edit to ``modelDiscoveryEnabled`` wins on unconfigure."""
+
+    fake_config.write_text(
+        json.dumps({"modelDiscoveryEnabled": False}), encoding="utf-8"
+    )
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert data["modelDiscoveryEnabled"] is True
+    data["modelDiscoveryEnabled"] = False
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    # The pre-merge value was False and the user re-applied False: restored.
+    assert result["modelDiscoveryEnabled"] is False
+
+
+def test_unconfigure_leaves_user_disabled_discovery_from_absent_root(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """FCC-inserted discovery flipped off by the user is not deleted twice."""
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["modelDiscoveryEnabled"] = False
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert result["modelDiscoveryEnabled"] is False

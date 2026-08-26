@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypedDict
 
@@ -149,7 +149,9 @@ class _OwnershipRecord:
     The managed inference keys are always tracked individually so values
     added to ``inference`` after a merge survive unconfiguration. When the
     pre-merge ``inference`` entry was not an object, configure replaced it
-    wholesale and ``inference_scalar`` snapshots what it clobbered.
+    wholesale and ``inference_scalar`` snapshots what it clobbered while
+    ``inference_written`` snapshots the FCC-generated mapping itself, so a
+    later user replacement is recognized as no longer FCC-owned.
     """
 
     discovery: _OwnershipEntry
@@ -157,6 +159,7 @@ class _OwnershipRecord:
     inference_was_object: bool
     inference_scalar: object | None
     inference_keys: dict[str, _OwnershipEntry]
+    inference_written: object | None = None
 
 
 _RECORD_SUFFIX = ".fcc-merge.json"
@@ -164,6 +167,7 @@ _RECORD_INFERENCE_KEYS = "inferenceKeys"
 _RECORD_INFERENCE_EXISTED = "inferenceExisted"
 _RECORD_INFERENCE_WAS_OBJECT = "inferenceWasObject"
 _RECORD_INFERENCE_SCALAR = "inferenceScalar"
+_RECORD_INFERENCE_WRITTEN = "inferenceWritten"
 
 
 def _record_payload(record: _OwnershipRecord) -> dict[str, object]:
@@ -177,6 +181,7 @@ def _record_payload(record: _OwnershipRecord) -> dict[str, object]:
     }
     if record.inference_existed and not record.inference_was_object:
         payload[_RECORD_INFERENCE_SCALAR] = record.inference_scalar
+        payload[_RECORD_INFERENCE_WRITTEN] = record.inference_written
     return payload
 
 
@@ -267,10 +272,14 @@ def _load_ownership_record(path: Path) -> _OwnershipRecord | None:
         inference_keys[key] = parsed
 
     scalar: object | None = None
+    written: object | None = None
     if existed and not was_object:
         if _RECORD_INFERENCE_SCALAR not in loaded:
             return None
         scalar = loaded[_RECORD_INFERENCE_SCALAR]
+        if _RECORD_INFERENCE_WRITTEN not in loaded:
+            return None
+        written = loaded[_RECORD_INFERENCE_WRITTEN]
 
     return _OwnershipRecord(
         discovery=discovery,
@@ -278,6 +287,7 @@ def _load_ownership_record(path: Path) -> _OwnershipRecord | None:
         inference_was_object=was_object,
         inference_scalar=scalar,
         inference_keys=inference_keys,
+        inference_written=written,
     )
 
 
@@ -339,6 +349,10 @@ def configure_claude_desktop_config(
         if not existed or not record_path.exists():
             # Keep the earliest pre-merge snapshot; later merges must not
             # clobber the values unconfigure is supposed to restore.
+            prior = replace(
+                prior,
+                inference_written=data.get(_INFERENCE_KEY),
+            )
             _save_config(record_path, _record_payload(prior))
         _save_config(config_path, data)
     return changed
@@ -380,12 +394,18 @@ def unconfigure_claude_desktop_config(path: Path | None = None) -> bool:
 
     changed = False
 
+    # Configure always writes ``True`` here. A current value of ``True`` is
+    # still FCC's to manage; anything else means the user edited it after the
+    # merge and their choice wins.
     discovery = record.discovery
     if discovery["present"]:
-        if _DISCOVERY_KEY not in data or data[_DISCOVERY_KEY] != discovery["value"]:
+        if (
+            data.get(_DISCOVERY_KEY) is True
+            and data[_DISCOVERY_KEY] != (discovery["value"])
+        ):
             data[_DISCOVERY_KEY] = discovery["value"]
             changed = True
-    elif _DISCOVERY_KEY in data:
+    elif data.get(_DISCOVERY_KEY) is True:
         del data[_DISCOVERY_KEY]
         changed = True
 
@@ -393,10 +413,13 @@ def unconfigure_claude_desktop_config(path: Path | None = None) -> bool:
         changed = _remove_inference_keys(data, record.inference_keys) or changed
     elif record.inference_was_object:
         changed = _restore_inference_keys(data, record.inference_keys) or changed
-    elif _INFERENCE_KEY not in data or data[_INFERENCE_KEY] != record.inference_scalar:
-        # Configure clobbered a non-object entry; restore what it replaced.
+    elif data.get(_INFERENCE_KEY) == record.inference_written:
+        # Configure clobbered a non-object entry and the entry is still
+        # exactly what configure wrote; restore what it replaced.
         data[_INFERENCE_KEY] = record.inference_scalar
         changed = True
+    # Any other current value is a post-merge user replacement or removal;
+    # it is no longer FCC's to touch, so it stays as-is.
 
     if changed:
         _save_config(config_path, data)

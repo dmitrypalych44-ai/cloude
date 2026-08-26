@@ -133,16 +133,46 @@ def test_console_launch_uses_native_tray_when_probe_succeeds():
 def test_entrypoint_routes_supported_native_platforms_to_tray(platform):
     with (
         patch.object(sys, "platform", platform),
+        patch(
+            "free_claude_code.cli.desktop_entrypoint.configure_claude_desktop_config"
+        ) as configure,
         patch("free_claude_code.cli.desktop_tray.launch") as tray_launch,
     ):
         entrypoint_launch([])
 
     tray_launch.assert_called_once()
+    configure.assert_called_once_with()
+
+
+def test_entrypoint_configures_desktop_routing_before_the_platform_lifecycle():
+    events: list[str] = []
+
+    def record_configure() -> bool:
+        events.append("configure")
+        return True
+
+    with (
+        patch.object(sys, "platform", "linux"),
+        patch(
+            "free_claude_code.cli.desktop_entrypoint.configure_claude_desktop_config",
+            record_configure,
+        ),
+        patch(
+            "free_claude_code.cli.desktop_console.launch_desktop",
+            side_effect=lambda *_: events.append("lifecycle"),
+        ),
+    ):
+        entrypoint_launch([])
+
+    assert events == ["configure", "lifecycle"]
 
 
 def test_entrypoint_routes_linux_through_probe_and_console_mode(capsys):
     with (
         patch.object(sys, "platform", "linux"),
+        patch(
+            "free_claude_code.cli.desktop_entrypoint.configure_claude_desktop_config"
+        ),
         patch("free_claude_code.cli.desktop_tray.tray_is_available") as probe,
         patch("free_claude_code.cli.desktop_console.launch_desktop") as start,
     ):
