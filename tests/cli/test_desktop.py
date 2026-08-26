@@ -237,11 +237,11 @@ def test_desktop_attaches_to_terminal_server_instead_of_binding_twice() -> None:
         patch.object(desktop, "load_server_settings", return_value=settings),
         patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
         patch.object(desktop, "preflight_proxy", return_value=None),
-        patch.object(desktop, "load_or_create_front_identity", return_value="secret"),
-        patch.object(desktop, "probe_fcc_front", return_value=False),
+        patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
         patch.object(desktop, "open_admin_when_ready", return_value=True) as open_admin,
         patch.object(desktop, "ServerSupervisor") as supervisor,
     ):
+        tls_proxy.return_value.start.return_value = False
         desktop.launch_desktop(MagicMock())
 
     open_admin.assert_called_once_with(settings)
@@ -260,20 +260,19 @@ def test_existing_server_with_https_front_gets_routing_merge() -> None:
         patch.object(desktop, "load_server_settings", return_value=settings),
         patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
         patch.object(desktop, "preflight_proxy", return_value=None),
-        patch.object(desktop, "load_or_create_front_identity", return_value="secret"),
-        patch.object(desktop, "probe_fcc_front", return_value=True) as probe,
         patch.object(desktop, "_merge_claude_desktop_config") as merge,
         patch.object(desktop, "open_admin_when_ready", return_value=True),
         patch.object(desktop, "ServerSupervisor"),
         patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
     ):
+        tls_proxy.return_value.start.return_value = True
         desktop.launch_desktop(MagicMock())
 
     merge.assert_called_once_with(settings)
-    # The merge writes the gateway credential, so the front must first
-    # prove ownership with the identity secret — not a transport probe.
-    probe.assert_called_once_with("https://localhost:8443", "secret")
-    tls_proxy.return_value.start.assert_not_called()
+    # The existing-server path must establish a verified front (reusing one
+    # the server's owner runs, or starting the managed proxy) before writing
+    # the gateway credential — never merge against a missing/unverified front.
+    tls_proxy.return_value.start.assert_called_once_with()
     instance_lock.release.assert_called_once_with()
 
 
@@ -288,17 +287,16 @@ def test_existing_server_without_https_front_is_left_unmerged() -> None:
         patch.object(desktop, "load_server_settings", return_value=settings),
         patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
         patch.object(desktop, "preflight_proxy", return_value=None),
-        patch.object(desktop, "load_or_create_front_identity", return_value="secret"),
-        patch.object(desktop, "probe_fcc_front", return_value=False),
         patch.object(desktop, "_merge_claude_desktop_config") as merge,
         patch.object(desktop, "open_admin_when_ready", return_value=True),
         patch.object(desktop, "ServerSupervisor"),
         patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
     ):
+        tls_proxy.return_value.start.return_value = False
         desktop.launch_desktop(MagicMock())
 
     merge.assert_not_called()
-    tls_proxy.return_value.start.assert_not_called()
+    tls_proxy.return_value.start.assert_called_once_with()
     instance_lock.release.assert_called_once_with()
 
 
@@ -306,8 +304,8 @@ def test_existing_server_with_impersonated_front_is_left_unmerged() -> None:
     """Regression guard for the Greptile impersonation finding.
 
     A listener that merely occupies the TLS port (transport alive) but
-    cannot serve this install's identity secret must not receive the
-    gateway credential through the existing-server merge path.
+    cannot prove it belongs to this FCC install makes ``start()`` fail its
+    adoption probe, so the gateway credential must not be merged.
     """
 
     from free_claude_code.cli import desktop
@@ -320,14 +318,13 @@ def test_existing_server_with_impersonated_front_is_left_unmerged() -> None:
         patch.object(desktop, "load_server_settings", return_value=settings),
         patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
         patch.object(desktop, "preflight_proxy", return_value=None),
-        patch.object(desktop, "load_or_create_front_identity", return_value="secret"),
-        # Transport may be alive, but identity fails: exactly the impersonator.
-        patch.object(desktop, "probe_fcc_front", return_value=False),
+        # Transport may be alive, but adoption fails: exactly the impersonator.
         patch.object(desktop, "_merge_claude_desktop_config") as merge,
         patch.object(desktop, "open_admin_when_ready", return_value=True),
         patch.object(desktop, "ServerSupervisor"),
-        patch.object(desktop, "CaddyTlsProxy"),
+        patch.object(desktop, "CaddyTlsProxy") as tls_proxy,
     ):
+        tls_proxy.return_value.start.return_value = False
         desktop.launch_desktop(MagicMock())
 
     merge.assert_not_called()
