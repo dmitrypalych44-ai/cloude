@@ -183,6 +183,9 @@ def test_console_tray_lifecycle_drives_controller_to_clean_stop():
         def request_stop(self) -> None:
             events.append("server-stop")
 
+        def desktop_gateway_url(self) -> str | None:
+            return None
+
     controller = DesktopController(
         FakeSupervisor(),
         lambda controller: ConsoleDesktopTray(controller),

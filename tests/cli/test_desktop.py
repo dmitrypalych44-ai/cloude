@@ -89,6 +89,9 @@ def test_desktop_controller_owns_server_thread_and_graceful_quit() -> None:
             self.status = ServerStatus.STOPPING
             self.stopped.set()
 
+        def desktop_gateway_url(self) -> str | None:
+            return None
+
     class FakeTray:
         def __init__(self, controller: DesktopController) -> None:
             self.controller = controller
@@ -161,6 +164,9 @@ def test_restart_during_server_startup_is_accepted_without_waiting() -> None:
 
         def request_stop(self) -> None:
             self.release_worker.set()
+
+        def desktop_gateway_url(self) -> str | None:
+            return None
 
     class WaitingTray:
         def __init__(self, _controller: DesktopController) -> None:
@@ -272,6 +278,43 @@ def test_fresh_desktop_launch_uses_console_free_supervisor() -> None:
     assert shell.call_args.args[:2] == (supervisor, tray_factory)
     controller.run.assert_called_once_with()
     instance_lock.release.assert_called_once_with()
+
+
+def test_desktop_controller_exposes_live_gateway_url_from_server() -> None:
+    """The desktop integration reads the gateway URL the server published.
+
+    Regression guard for the Greptile "published desktop gateway URL is
+    never handed to the Claude Desktop integration" finding: the
+    controller surfaces ``ServerOwner.desktop_gateway_url()`` so the
+    config merge consumes the live TLS-prefixed endpoint rather than
+    re-deriving it.
+    """
+
+    class PublishingSupervisor:
+        status = ServerStatus.RUNNING
+        gateway: str | None = None
+
+        def schedule_run(self) -> bool:
+            return True
+
+        def run(self, *, open_admin_browser: bool | None = None) -> None:
+            return None
+
+        def request_restart(self) -> bool:
+            return True
+
+        def request_stop(self) -> None:
+            return None
+
+        def desktop_gateway_url(self) -> str | None:
+            return self.gateway
+
+    supervisor = PublishingSupervisor()
+    controller = DesktopController(supervisor, MagicMock(), MagicMock())
+
+    assert controller.desktop_gateway_url() is None
+    supervisor.gateway = "https://localhost:18443/claude-desktop"
+    assert controller.desktop_gateway_url() == "https://localhost:18443/claude-desktop"
 
 
 def test_desktop_quit_stops_the_managed_tls_front() -> None:
