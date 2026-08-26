@@ -295,3 +295,26 @@ def test_tray_launch_item_notifies_when_binary_missing():
         tray._launch_claude_desktop(tray._icon, MagicMock(name="item"))
 
     tray._icon.notify.assert_called_once()
+
+
+def test_tray_launch_item_notifies_when_no_https_front():
+    # Regression guard for the Greptile tray-bypass finding: when the
+    # TLS-gated launch refuses (no verified HTTPS front), the tray must
+    # surface the refusal as a notification rather than crash the callback.
+    from free_claude_code.cli.desktop_tray import PystrayDesktopTray
+
+    controller = MagicMock(spec=DesktopController)
+    with (
+        patch("free_claude_code.cli.desktop_tray._create_icon"),
+        patch("free_claude_code.cli.desktop_tray.Icon", MagicMock()),
+        patch(
+            "free_claude_code.cli.desktop_tray.ensure_configured_and_launch",
+            side_effect=RuntimeError("no verified FCC HTTPS front"),
+        ),
+    ):
+        tray = PystrayDesktopTray(controller)
+        tray._launch_claude_desktop(tray._icon, MagicMock(name="item"))
+
+    tray._icon.notify.assert_called_once()
+    notified = tray._icon.notify.call_args.args[0]
+    assert "no verified FCC HTTPS front" in notified

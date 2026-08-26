@@ -15,7 +15,12 @@ from free_claude_code.cli.commands import (
     schedule_open_admin_browser,
 )
 from free_claude_code.cli.launchers.common import preflight_proxy
-from free_claude_code.cli.tls_proxy import CaddyTlsProxy
+from free_claude_code.cli.tls_proxy import (
+    CaddyTlsProxy,
+    load_or_create_front_identity,
+    probe_fcc_front,
+    tls_root_url,
+)
 from free_claude_code.config.loader import get_settings
 from free_claude_code.config.paths import config_dir_path
 from free_claude_code.config.server_urls import local_proxy_root_url
@@ -130,22 +135,19 @@ def launch_desktop(tray_factory: DesktopTrayFactory) -> None:
         return
 
     tls_proxy = CaddyTlsProxy(settings)
-    if preflight_proxy(local_proxy_root_url(settings)) is None:
-        # A healthy FCC server already runs, but nothing in this path owns its
-        # HTTPS front yet. Establish a verified front (reusing one the server's
-        # owner runs, or starting the managed proxy) and wire Claude Desktop
-        # before focusing the admin UI. The front is left running so it keeps
-        # serving the long-running server after this short-lived launch
-        # returns, so it is deliberately not stopped here.
-        try:
-            _merge_with_verified_front(settings, tls_proxy)
-            open_admin_when_ready(settings)
-        finally:
-            instance_lock.release()
-        return
-
     try:
-        _merge_with_verified_front(settings, tls_proxy)
+        if preflight_proxy(local_proxy_root_url(settings)) is None:
+            _merge_when_https_front_exists(settings)
+            open_admin_when_ready(settings)
+            return
+
+        if tls_proxy.start():
+            _merge_claude_desktop_config(settings)
+        else:
+            logger.warning(
+                "Skipping Claude Desktop config merge: no HTTPS front is "
+                "available for the desktop gateway.",
+            )
 
         supervisor = ServerSupervisor(console_logging=False)
 
@@ -167,22 +169,29 @@ def _merge_claude_desktop_config(settings: Settings) -> None:
         logger.warning("Claude Desktop config merge failed: {}", exc)
 
 
-def _merge_with_verified_front(settings: Settings, tls_proxy: CaddyTlsProxy) -> None:
-    """Merge the Claude Desktop routing block only behind a verified HTTPS front.
+def _merge_when_https_front_exists(settings: Settings) -> None:
+    """Attach an already-running FCC server to Claude Desktop when it has a front.
 
-    ``tls_proxy.start()`` reuses an already-verified front without spawning, or
-    starts the managed proxy when none exists. The merge writes the gateway
-    credential, so it must point at a front that proved it belongs to this FCC
-    install (certificate chained to the managed CA plus identity secret);
-    without a verified front Claude Desktop cannot route — it refuses plain
-    HTTP — so the merge is skipped with a warning rather than written against
-    an unusable ``http://`` gateway.
+    This short-lived launch never spawns its own TLS proxy: whichever process
+    owns the healthy server owns the front too, so only an existing one is
+    adopted here. Spawning a managed child on this path would orphan it — the
+    branch returns immediately and nothing would stop the child — so adoption
+    is probe-only. The merge writes the gateway credential, so the front must
+    first prove it belongs to this FCC install — its certificate must chain
+    to this install's managed CA and it must serve the identity secret. A
+    reusable secret over unverified TLS alone would hand the token to any
+    same-user process replaying it behind its own self-signed listener.
+    Without a verified front Claude Desktop cannot route (it refuses plain
+    HTTP), so the merge is skipped with an actionable warning rather than
+    written against an unusable ``http://`` gateway.
     """
 
-    if tls_proxy.start():
+    if probe_fcc_front(tls_root_url(settings), load_or_create_front_identity()):
         _merge_claude_desktop_config(settings)
     else:
         logger.warning(
-            "Skipping Claude Desktop config merge: no HTTPS front is "
-            "available for the desktop gateway.",
+            "Claude Desktop routing is not wired to the running FCC server: "
+            "no verified HTTPS front exists. Start the FCC desktop host "
+            "(which manages the front) or enable the caddy TLS proxy, then "
+            "relaunch.",
         )

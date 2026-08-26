@@ -27,7 +27,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from free_claude_code.cli.tls_proxy import desktop_gateway_base_url
+from free_claude_code.cli.tls_proxy import (
+    desktop_gateway_base_url,
+    verified_https_gateway_url,
+)
 from free_claude_code.config.loader import get_settings
 from free_claude_code.config.settings import Settings
 
@@ -290,11 +293,26 @@ def ensure_configured_and_launch(
 ) -> subprocess.Popen[bytes]:
     """Merge the routing block, then spawn Claude Desktop.
 
+    The routing block carries the proxy auth token, so it is only written
+    behind a verified HTTPS front: ``verified_https_gateway_url`` returns
+    ``None`` — never the plain-HTTP fallback — when no front proves it
+    belongs to this FCC install, and the launch is refused instead of
+    pointing the credential at an unverified or cleartext listener.
+
     Raises:
+        RuntimeError: If no verified HTTPS front answers.
         FileNotFoundError: If no Claude Desktop binary can be located.
     """
 
-    configure_claude_desktop_config(settings=settings)
+    resolved = settings or get_settings()
+    gateway_url = verified_https_gateway_url(resolved)
+    if gateway_url is None:
+        raise RuntimeError(
+            "Refusing to launch Claude Desktop: no verified FCC HTTPS front "
+            "is available. Start the FCC desktop host (which manages the "
+            "front) or enable the caddy TLS proxy, then retry."
+        )
+    configure_claude_desktop_config(settings=resolved, gateway_base_url=gateway_url)
     return launch_binary()
 
 

@@ -309,13 +309,20 @@ def test_ensure_configured_and_launch_merges_then_spawns(
 ) -> None:
     config_path = tmp_path / "claude_desktop_config.json"
     order: list[str] = []
+    gateway_urls: list[str | None] = []
     original_configure = claude_desktop.configure_claude_desktop_config
+    verified_url = "https://localhost:8443/claude-desktop"
 
     def fake_configure(
-        path: Path | None = None, settings: Settings | None = None
+        path: Path | None = None,
+        settings: Settings | None = None,
+        gateway_base_url: str | None = None,
     ) -> bool:
         order.append("configure")
-        return original_configure(path or config_path, settings=settings)
+        gateway_urls.append(gateway_base_url)
+        return original_configure(
+            path or config_path, settings=settings, gateway_base_url=gateway_base_url
+        )
 
     class FakeProcess:
         def __init__(self, cmd: list[str]) -> None:
@@ -324,6 +331,9 @@ def test_ensure_configured_and_launch_merges_then_spawns(
     monkeypatch.setattr(
         claude_desktop, "configure_claude_desktop_config", fake_configure
     )
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: verified_url
+    )
     monkeypatch.setattr(claude_desktop, "find_binary", lambda: "/usr/bin/claude")
     monkeypatch.setattr(claude_desktop.subprocess, "Popen", FakeProcess)
 
@@ -331,3 +341,38 @@ def test_ensure_configured_and_launch_merges_then_spawns(
 
     assert order[0] == "configure"
     assert order[1].startswith("spawn:")
+    # The routing block must point at the verified HTTPS front, never the
+    # plain-HTTP fallback.
+    assert gateway_urls == [verified_url]
+
+
+def test_ensure_configured_and_launch_refuses_without_https_front(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_settings: Settings,
+) -> None:
+    # Regression guard for the Greptile tray-bypass finding: without a
+    # verified HTTPS front the gateway URL would fall back to plain HTTP,
+    # so the credential-bearing config write and the spawn must both be
+    # refused instead of exposing the token over cleartext local transport.
+    config_path = tmp_path / "claude_desktop_config.json"
+
+    def fail_configure(*_args: object, **_kwargs: object) -> bool:
+        raise AssertionError("no HTTPS front must never write the config")
+
+    def fail_popen(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("no HTTPS front must never reach the binary")
+
+    monkeypatch.setattr(
+        claude_desktop, "configure_claude_desktop_config", fail_configure
+    )
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: None
+    )
+    monkeypatch.setattr(claude_desktop, "find_binary", lambda: "/usr/bin/claude")
+    monkeypatch.setattr(claude_desktop.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(RuntimeError, match="no verified FCC HTTPS front"):
+        claude_desktop.ensure_configured_and_launch(settings=fake_settings)
+
+    assert not config_path.exists()
