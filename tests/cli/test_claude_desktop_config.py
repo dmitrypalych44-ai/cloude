@@ -684,3 +684,67 @@ def test_unconfigure_leaves_user_disabled_discovery_from_absent_root(
 
     result = json.loads(fake_config.read_text(encoding="utf-8"))
     assert result["modelDiscoveryEnabled"] is False
+
+
+def test_unconfigure_preserves_user_edited_managed_key(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """A post-merge user edit to a managed key wins over the snapshot."""
+
+    claude_desktop.configure_claude_desktop_config(fake_config, settings=fake_settings)
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"]["inferenceAnthropicApiKey"] = "user-rotated-key"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    out = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert out["inference"]["inferenceAnthropicApiKey"] == "user-rotated-key"
+    # Untouched FCC-inserted keys are still removed.
+    assert "provider" not in out["inference"]
+
+
+def test_unconfigure_preserves_user_edited_fcc_created_key(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Same rule when FCC created ``inference`` itself."""
+
+    claude_desktop.configure_claude_desktop_config(fake_config, settings=fake_settings)
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"]["inferenceGatewayBaseUrl"] = "http://user-chosen:9"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    out = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert out["inference"]["inferenceGatewayBaseUrl"] == "http://user-chosen:9"
+    assert "provider" not in out["inference"]
+
+
+def test_repeated_merges_absorb_post_merge_user_edits(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """A merge after a user edit must not resurrect the first snapshot."""
+
+    original = {"modelDiscoveryEnabled": False, "custom": "keep"}
+    fake_config.write_text(json.dumps({"inference": dict(original)}), encoding="utf-8")
+
+    claude_desktop.configure_claude_desktop_config(fake_config, settings=fake_settings)
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"]["inferenceAnthropicApiKey"] = "user-key-v2"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    # Re-merge with rotated credentials; then reverse everything.
+    rotated = fake_settings.model_copy(update={"proxy_auth_token": "tok-456"})
+    assert (
+        claude_desktop.configure_claude_desktop_config(fake_config, settings=rotated)
+        is True
+    )
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    out = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert out["inference"]["inferenceAnthropicApiKey"] == "user-key-v2"
+    assert out["inference"]["custom"] == "keep"

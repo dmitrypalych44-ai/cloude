@@ -16,7 +16,7 @@ from free_claude_code.cli.desktop_tray import tray_is_available
 def test_tray_is_available_true_when_icon_constructs():
     with (
         patch("free_claude_code.cli.desktop_tray._create_icon"),
-        patch("free_claude_code.cli.desktop_tray.Icon", MagicMock()),
+        patch("pystray.Icon", MagicMock()),
     ):
         available, reason = tray_is_available()
 
@@ -28,7 +28,7 @@ def test_tray_is_available_reports_backend_import_error():
     with (
         patch("free_claude_code.cli.desktop_tray._create_icon"),
         patch(
-            "free_claude_code.cli.desktop_tray.Icon",
+            "pystray.Icon",
             MagicMock(side_effect=ImportError("gir bindings missing")),
         ),
     ):
@@ -42,7 +42,7 @@ def test_tray_is_available_reports_other_construction_errors_verbatim():
     error = RuntimeError("no display")
     with (
         patch("free_claude_code.cli.desktop_tray._create_icon"),
-        patch("free_claude_code.cli.desktop_tray.Icon", MagicMock(side_effect=error)),
+        patch("pystray.Icon", MagicMock(side_effect=error)),
     ):
         available, reason = tray_is_available()
 
@@ -230,3 +230,18 @@ def test_console_tray_lifecycle_drives_controller_to_clean_stop():
     # the idempotent stop; the null tray must survive both.
     assert events[0] == "server-run"
     assert events.count("server-stop") >= 1
+
+
+def test_tray_module_imports_without_display():
+    """pystray resolves an X11 display at import; the module must not."""
+
+    import importlib
+
+    module = sys.modules["free_claude_code.cli.desktop_tray"]
+    # A ``None`` entry makes ``import pystray`` fail as if it were absent.
+    try:
+        with patch.dict(sys.modules, {"pystray": None}):
+            reloaded = importlib.reload(module)
+    finally:
+        importlib.reload(module)
+    assert reloaded.tray_is_available.__module__ == module.__name__
