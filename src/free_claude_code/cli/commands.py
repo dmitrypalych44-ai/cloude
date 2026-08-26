@@ -9,6 +9,7 @@ import uvicorn
 
 from free_claude_code.cli.launchers.common import preflight_proxy
 from free_claude_code.cli.process_registry import kill_all_best_effort
+from free_claude_code.cli.tls_proxy import CaddyTlsProxy
 from free_claude_code.config.loader import clear_settings_cache, get_settings
 from free_claude_code.config.server_urls import local_admin_url, local_proxy_root_url
 from free_claude_code.config.settings import Settings
@@ -162,9 +163,18 @@ class ServerSupervisor:
             if self._stop_requested or self._restart_generation != restart_generation:
                 server.should_exit = True
 
-        if open_admin_browser:
-            schedule_open_admin_browser(settings)
-        server.run()
+        # Own the managed HTTPS front for exactly this generation: started
+        # before the server accepts traffic so Claude Desktop's config-merge
+        # probe finds a live TLS endpoint, stopped when the generation ends.
+        # ``start()`` never raises and falls back to plain HTTP on failure.
+        tls_front = CaddyTlsProxy(settings)
+        try:
+            tls_front.start()
+            if open_admin_browser:
+                schedule_open_admin_browser(settings)
+            server.run()
+        finally:
+            tls_front.stop()
 
         with self._lock:
             if self._server is server:

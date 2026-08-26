@@ -217,6 +217,7 @@ def test_serve_supervisor_restarts_when_app_requests_restart() -> None:
         patch.object(commands.uvicorn, "Config", side_effect=fake_config),
         patch.object(commands.uvicorn, "Server", side_effect=FakeServer),
         patch.object(commands, "build_asgi_app", side_effect=build_asgi_app),
+        patch.object(commands, "CaddyTlsProxy") as tls_proxy,
         patch.object(commands, "schedule_open_admin_browser") as schedule_open_admin,
         patch.object(commands, "clear_settings_cache") as clear_settings_cache,
         patch.object(commands, "kill_all_best_effort") as kill_all,
@@ -224,6 +225,11 @@ def test_serve_supervisor_restarts_when_app_requests_restart() -> None:
         commands.serve()
 
     assert len(servers) == 2
+    # One managed HTTPS front per server generation, each started and
+    # stopped once (the shared mock aggregates both instances' calls).
+    assert tls_proxy.call_count == 2
+    assert tls_proxy.return_value.start.call_count == 2
+    assert tls_proxy.return_value.stop.call_count == 2
     schedule_open_admin.assert_called_once_with(settings)
     clear_settings_cache.assert_called_once()
     kill_all.assert_called_once()
@@ -259,6 +265,7 @@ def test_serve_supervisor_refuses_restart_after_incomplete_shutdown() -> None:
         patch.object(commands.uvicorn, "Config", side_effect=fake_config),
         patch.object(commands.uvicorn, "Server", side_effect=FakeServer),
         patch.object(commands, "build_asgi_app", side_effect=build_asgi_app),
+        patch.object(commands, "CaddyTlsProxy") as tls_proxy,
         patch.object(commands, "schedule_open_admin_browser"),
         patch.object(commands, "clear_settings_cache") as clear_settings_cache,
         patch.object(commands, "kill_all_best_effort") as kill_all,
@@ -266,8 +273,84 @@ def test_serve_supervisor_refuses_restart_after_incomplete_shutdown() -> None:
         commands.serve()
 
     assert len(servers) == 1
+    # The single generation's HTTPS front is started and stopped exactly once.
+    assert tls_proxy.call_count == 1
+    tls_proxy.return_value.start.assert_called_once_with()
+    tls_proxy.return_value.stop.assert_called_once_with()
     clear_settings_cache.assert_not_called()
     kill_all.assert_called_once()
+
+
+def test_serve_supervisor_orders_tls_front_around_each_generation() -> None:
+    """The managed HTTPS front wraps every server generation.
+
+    Regression guard for the Greptile "managed TLS proxy never enters the
+    lifecycle" finding: each generation constructs its own
+    ``CaddyTlsProxy``, starts it before the server accepts traffic, and
+    stops it when the generation exits — across a normal stop and a
+    restart.
+    """
+    from free_claude_code.cli import commands
+
+    settings = _launcher_settings()
+    get_settings = MagicMock(side_effect=[settings, settings])
+    events: list[str] = []
+    restart_callbacks: list[Callable[[], None]] = []
+
+    def build_asgi_app(_settings: Settings, restart_callback: Callable[[], None]):
+        restart_callbacks.append(restart_callback)
+        return SimpleNamespace(runtime=SimpleNamespace(is_closed=False))
+
+    class FakeTlsProxy:
+        def __init__(self, proxy_settings: Settings) -> None:
+            assert proxy_settings is settings
+            events.append("construct")
+
+        def start(self) -> bool:
+            events.append("start")
+            return True
+
+        def stop(self) -> None:
+            events.append("stop")
+
+    class FakeServer:
+        def __init__(self, config):
+            self.config = config
+            self.should_exit = False
+
+        def run(self):
+            events.append("server-run")
+            if len(restart_callbacks) == 1:
+                # First generation: request a restart, then close cleanly.
+                restart_callbacks[-1]()
+                assert self.should_exit is True
+                self.config.app.runtime.is_closed = True
+
+    def fake_config(app, **kwargs):
+        return SimpleNamespace(app=app, kwargs=kwargs)
+
+    with (
+        patch.object(commands, "get_settings", get_settings),
+        patch.object(commands.uvicorn, "Config", side_effect=fake_config),
+        patch.object(commands.uvicorn, "Server", side_effect=FakeServer),
+        patch.object(commands, "build_asgi_app", side_effect=build_asgi_app),
+        patch.object(commands, "CaddyTlsProxy", side_effect=FakeTlsProxy),
+        patch.object(commands, "schedule_open_admin_browser"),
+        patch.object(commands, "clear_settings_cache"),
+        patch.object(commands, "kill_all_best_effort"),
+    ):
+        commands.serve()
+
+    assert events == [
+        "construct",
+        "start",
+        "server-run",
+        "stop",
+        "construct",
+        "start",
+        "server-run",
+        "stop",
+    ]
 
 
 def test_serve_handles_keyboard_interrupt_without_traceback() -> None:
