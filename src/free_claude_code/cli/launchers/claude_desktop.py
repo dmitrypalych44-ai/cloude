@@ -13,6 +13,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from free_claude_code.cli import claude_desktop as routing
+from free_claude_code.cli.tls_proxy import (
+    ensure_https_front,
+    verified_https_gateway_url,
+)
+from free_claude_code.config.loader import get_settings
 
 CLAUDE_DESKTOP_BINARY = routing.CLAUDE_DESKTOP_BINARY
 
@@ -74,43 +79,76 @@ def launch(argv: Sequence[str] | None = None) -> None:
         print(f"{'Removed FCC block' if changed else 'Nothing to remove'}: {target}")
         return
 
-    try:
-        configure_claude_desktop_config(parsed.config_path)
-    except OSError as exc:
-        print(f"Warning: could not merge the FCC routing block: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
-
-    # A malformed config cannot carry FCC routing; launching anyway would
-    # start Claude Desktop without model discovery or inference routing.
-    target = parsed.config_path or _config_path()
-    try:
-        load_existing_config(target)
-    except FileNotFoundError:
-        pass  # configure created a fresh config; nothing to validate.
-    except MalformedConfigError as exc:
+    # Claude Desktop cannot route through plain HTTP, so bring up a
+    # verified FCC HTTPS front before writing the routing block or
+    # spawning the binary. Without one the gateway URL would fall back to
+    # an unusable http:// address, so refuse to launch instead.
+    settings = get_settings()
+    tls_front = ensure_https_front(settings)
+    if tls_front is None:
         print(
-            f"Refusing to launch Claude Desktop: malformed config at "
-            f"{exc.path}: {exc.reason}. Fix or remove the file and retry.",
+            "Refusing to launch Claude Desktop: no verified FCC HTTPS front "
+            "is available. Enable the caddy TLS proxy (or start the FCC "
+            "desktop host, which manages it) and retry.",
             file=sys.stderr,
         )
-        raise SystemExit(1) from None
+        raise SystemExit(1)
 
     try:
-        process = routing.launch_binary(tuple(parsed.binary_args))
-    except FileNotFoundError:
-        print(
-            f"Could not find '{CLAUDE_DESKTOP_BINARY}' binary.",
-            file=sys.stderr,
-        )
-        print(
-            "Install Claude Desktop from https://claude.ai/download.",
-            file=sys.stderr,
-        )
-        raise SystemExit(127) from None
-    try:
-        return_code = process.wait()
-    except KeyboardInterrupt:
-        process.terminate()
-        process.wait()
-        raise
-    raise SystemExit(return_code)
+        gateway_url = verified_https_gateway_url(settings)
+        if gateway_url is None:
+            print(
+                "Refusing to launch Claude Desktop: the FCC HTTPS front "
+                "stopped verifying before the routing block could be "
+                "written. Retry once the front is healthy.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+        try:
+            configure_claude_desktop_config(
+                parsed.config_path, gateway_base_url=gateway_url
+            )
+        except OSError as exc:
+            print(
+                f"Warning: could not merge the FCC routing block: {exc}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+
+        # A malformed config cannot carry FCC routing; launching anyway would
+        # start Claude Desktop without model discovery or inference routing.
+        target = parsed.config_path or _config_path()
+        try:
+            load_existing_config(target)
+        except FileNotFoundError:
+            pass  # configure created a fresh config; nothing to validate.
+        except MalformedConfigError as exc:
+            print(
+                f"Refusing to launch Claude Desktop: malformed config at "
+                f"{exc.path}: {exc.reason}. Fix or remove the file and retry.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+
+        try:
+            process = routing.launch_binary(tuple(parsed.binary_args))
+        except FileNotFoundError:
+            print(
+                f"Could not find '{CLAUDE_DESKTOP_BINARY}' binary.",
+                file=sys.stderr,
+            )
+            print(
+                "Install Claude Desktop from https://claude.ai/download.",
+                file=sys.stderr,
+            )
+            raise SystemExit(127) from None
+        try:
+            return_code = process.wait()
+        except KeyboardInterrupt:
+            process.terminate()
+            process.wait()
+            raise
+        raise SystemExit(return_code)
+    finally:
+        tls_front.stop()

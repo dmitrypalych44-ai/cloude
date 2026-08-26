@@ -410,6 +410,62 @@ def test_resolve_gateway_base_url_http_when_disabled_or_unreachable(
         assert resolve_gateway_base_url(settings) == "http://127.0.0.1:8082"
 
 
+def test_ensure_https_front_returns_proxy_when_start_succeeds(
+    settings: Settings,
+) -> None:
+    proxy = MagicMock(spec=CaddyTlsProxy)
+    proxy.start.return_value = True
+
+    with patch.object(tls_proxy, "CaddyTlsProxy", return_value=proxy):
+        front = tls_proxy.ensure_https_front(settings)
+
+    assert front is proxy
+    proxy.stop.assert_not_called()
+
+
+def test_ensure_https_front_returns_none_and_stops_when_start_fails(
+    settings: Settings,
+) -> None:
+    # A failed bring-up must leave no managed child behind: the gate stops
+    # the proxy it constructed and hands the caller ``None``.
+    proxy = MagicMock(spec=CaddyTlsProxy)
+    proxy.start.return_value = False
+
+    with patch.object(tls_proxy, "CaddyTlsProxy", return_value=proxy):
+        front = tls_proxy.ensure_https_front(settings)
+
+    assert front is None
+    proxy.stop.assert_called_once()
+
+
+def test_verified_https_gateway_url_returns_url_when_probe_passes(
+    settings: Settings,
+) -> None:
+    with (
+        patch.object(tls_proxy, "load_or_create_front_identity", return_value="secret"),
+        patch.object(tls_proxy, "probe_fcc_front", return_value=True) as probe,
+    ):
+        url = tls_proxy.verified_https_gateway_url(settings)
+
+    assert url == f"https://localhost:18443/{settings.desktop_gateway_prefix}"
+    probe.assert_called_once_with("https://localhost:18443", "secret")
+
+
+def test_verified_https_gateway_url_never_falls_back_to_http(
+    settings: Settings,
+) -> None:
+    # Unlike resolve_gateway_base_url, the desktop gate must return None —
+    # never a plain-HTTP URL — when the front does not verify.
+    disabled = Settings(host="127.0.0.1", port=8082, tls_proxy_enabled=False)
+    assert tls_proxy.verified_https_gateway_url(disabled) is None
+
+    with (
+        patch.object(tls_proxy, "load_or_create_front_identity", return_value="s"),
+        patch.object(tls_proxy, "probe_fcc_front", return_value=False),
+    ):
+        assert tls_proxy.verified_https_gateway_url(settings) is None
+
+
 def test_start_reuses_external_front_without_spawning(
     settings: Settings,
     tmp_path: Path,

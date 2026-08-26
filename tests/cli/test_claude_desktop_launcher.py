@@ -30,6 +30,30 @@ def deterministic_gateway_url(monkeypatch: pytest.MonkeyPatch):
     )
 
 
+class FakeFront:
+    """Stand-in for the managed TLS proxy the launcher brings up."""
+
+    def __init__(self) -> None:
+        self.stop_count = 0
+
+    def stop(self) -> None:
+        self.stop_count += 1
+
+
+@pytest.fixture
+def verified_front(monkeypatch: pytest.MonkeyPatch) -> FakeFront:
+    """Default-branch tests run against an already-verified HTTPS front."""
+
+    front = FakeFront()
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: front)
+    monkeypatch.setattr(
+        claude_desktop,
+        "verified_https_gateway_url",
+        lambda settings: _DETERMINISTIC_URL,
+    )
+    return front
+
+
 @pytest.fixture
 def fake_config(tmp_path: Path) -> Path:
     return tmp_path / "claude_desktop_config.json"
@@ -158,6 +182,7 @@ def test_config_path_resolver_returns_default_paths(
 def test_launch_spawns_binary_without_certificate_bypass(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[list[str]] = []
@@ -184,11 +209,16 @@ def test_launch_spawns_binary_without_certificate_bypass(
     assert calls == [["/usr/bin/claude-desktop", "/tmp/some extra path/"]]
     data = json.loads(fake_config.read_text(encoding="utf-8"))
     assert data["modelDiscoveryEnabled"] is True
+    # The routing block must point at the verified HTTPS front, and the
+    # front the launcher brought up is stopped on the way out.
+    assert data["inference"]["inferenceGatewayBaseUrl"] == _DETERMINISTIC_URL
+    assert verified_front.stop_count == 1
 
 
 def test_launch_merges_config_before_spawning_binary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
 ) -> None:
     events: list[str] = []
 
@@ -219,6 +249,7 @@ def test_launch_merges_config_before_spawning_binary(
 def test_launch_aborts_when_merge_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     spawned: list[list[str]] = []
@@ -233,7 +264,7 @@ def test_launch_aborts_when_merge_fails(
     monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
     monkeypatch.setattr(routing.subprocess, "Popen", FakeProcess)
 
-    def failing_configure(_path: Path) -> bool:
+    def failing_configure(_path: Path, gateway_base_url: str | None = None) -> bool:
         raise OSError("disk full")
 
     monkeypatch.setattr(
@@ -247,6 +278,7 @@ def test_launch_aborts_when_merge_fails(
     # own gateway, so a failed merge must abort instead of degrading silently.
     assert exc.value.code == 1
     assert spawned == []
+    assert verified_front.stop_count == 1  # front cleaned up on the abort path
     captured = capsys.readouterr()
     assert "could not merge the FCC routing block" in captured.err
 
@@ -254,6 +286,7 @@ def test_launch_aborts_when_merge_fails(
 def test_launch_exits_127_when_binary_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(routing.shutil, "which", lambda _: None)
@@ -261,6 +294,7 @@ def test_launch_exits_127_when_binary_missing(
     with pytest.raises(SystemExit) as exc:
         claude_desktop.launch(["--config-path", str(tmp_path / "absent.json")])
     assert exc.value.code == 127
+    assert verified_front.stop_count == 1
     captured = capsys.readouterr()
     assert "claude-desktop" in captured.err
 
@@ -292,6 +326,7 @@ def test_launch_configure_does_not_invoke_subprocess(
 def test_launch_refuses_malformed_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake = tmp_path / "claude_desktop_config.json"
@@ -309,6 +344,86 @@ def test_launch_refuses_malformed_config(
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Refusing to launch Claude Desktop" in captured.err
+
+
+def test_launch_refuses_without_https_front(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Regression guard for the Greptile "standalone launch lacks HTTPS"
+    # finding: without a verified front the gateway URL would fall back to
+    # plain HTTP, which Claude Desktop cannot use — so the launcher must
+    # refuse instead of writing an unusable routing block and spawning.
+    fake = tmp_path / "claude_desktop_config.json"
+
+    def fail_popen(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("no HTTPS front must never reach the binary")
+
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: None)
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    assert not fake.exists()  # no routing block written without HTTPS
+    captured = capsys.readouterr()
+    assert "no verified FCC HTTPS front" in captured.err
+
+
+def test_launch_refuses_when_front_stops_verifying(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The front can stop verifying between bring-up and the config write;
+    # the launcher must re-check and refuse rather than fall back to HTTP.
+    fake = tmp_path / "claude_desktop_config.json"
+    front = FakeFront()
+
+    def fail_popen(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("an unverified front must never reach the binary")
+
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: front)
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: None
+    )
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    assert not fake.exists()
+    assert front.stop_count == 1
+    captured = capsys.readouterr()
+    assert "stopped verifying" in captured.err
+
+
+def test_launch_stops_front_after_binary_exits(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    verified_front: FakeFront,
+) -> None:
+    # The launcher owns the front it brought up for the whole Desktop
+    # session and must stop it when the binary exits.
+    class FakeProcess:
+        def __init__(self, _cmd: list[str]) -> None: ...
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", FakeProcess)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--config-path", str(tmp_path / "cfg.json")])
+
+    assert exc.value.code == 0
+    assert verified_front.stop_count == 1
 
 
 def test_save_config_permissions_survive_permissive_umask(

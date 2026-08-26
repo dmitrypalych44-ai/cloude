@@ -1,6 +1,6 @@
 """HTTPS front proxy for clients that refuse plain HTTP (e.g. Claude Desktop).
 
-Two cooperating pieces:
+Three cooperating pieces:
 
 1. ``probe_fcc_front`` / ``resolve_gateway_base_url`` — detect whether an
    HTTPS endpoint that fronts *this* FCC install already answers on the
@@ -15,6 +15,17 @@ Two cooperating pieces:
    with ``tls internal``, admin API disabled, and all of Caddy's state
    sandboxed inside that directory. The proxy forwards to the local FCC
    server and is stopped alongside it.
+3. ``ensure_https_front`` / ``verified_https_gateway_url`` — the gate
+   credential-bearing entry points (the standalone launcher) use: bring up a
+   verified HTTPS front or fail, and only then hand out the gateway URL.
+   Claude Desktop cannot use the plain-HTTP fallback, so these never return
+   one.
+
+Security boundary: every proof here (the identity secret, the managed CA
+key material) is owner-only on disk, which keeps *other local users* out.
+A process already running as this user can read all of them, so same-user
+code execution is outside the security boundary this module defends — the
+same boundary the proxy auth token itself lives behind.
 """
 
 import http.client
@@ -212,6 +223,39 @@ def desktop_gateway_base_url(settings: Settings) -> str:
         f"{resolve_gateway_base_url(settings).rstrip('/')}"
         f"/{settings.desktop_gateway_prefix}"
     )
+
+
+def ensure_https_front(settings: Settings) -> CaddyTlsProxy | None:
+    """Bring up a verified HTTPS front, or return ``None`` when impossible.
+
+    Reuses an already-verified front without spawning anything; otherwise
+    starts the managed proxy and keeps it running only while it stays
+    verified. Callers that receive ``None`` must not write a Desktop routing
+    block or spawn Claude Desktop: without HTTPS the gateway URL would fall
+    back to plain HTTP, which Claude Desktop cannot use.
+    """
+
+    proxy = CaddyTlsProxy(settings)
+    if proxy.start():
+        return proxy
+    proxy.stop()
+    return None
+
+
+def verified_https_gateway_url(settings: Settings) -> str | None:
+    """Desktop gateway URL, but only when a verified HTTPS front answers.
+
+    Returns ``None`` instead of the plain-HTTP fallback
+    ``resolve_gateway_base_url`` would produce, because Claude Desktop
+    cannot route through plain HTTP and a credential-bearing config must
+    never point at an unverified listener.
+    """
+
+    if settings.tls_proxy_enabled and probe_fcc_front(
+        tls_root_url(settings), load_or_create_front_identity()
+    ):
+        return f"{tls_root_url(settings).rstrip('/')}/{settings.desktop_gateway_prefix}"
+    return None
 
 
 class CaddyTlsProxy:
