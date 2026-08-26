@@ -15,7 +15,12 @@ from free_claude_code.cli.commands import (
     schedule_open_admin_browser,
 )
 from free_claude_code.cli.launchers.common import preflight_proxy
-from free_claude_code.cli.tls_proxy import CaddyTlsProxy, probe_https, tls_root_url
+from free_claude_code.cli.tls_proxy import (
+    CaddyTlsProxy,
+    load_or_create_front_identity,
+    probe_fcc_front,
+    tls_root_url,
+)
 from free_claude_code.config.loader import get_settings
 from free_claude_code.config.paths import config_dir_path
 from free_claude_code.config.server_urls import local_proxy_root_url
@@ -169,8 +174,11 @@ def _merge_when_https_front_exists(settings: Settings) -> None:
 
     A second desktop launch never spawns its own TLS proxy: whichever process
     owns the healthy server owns the front too, so only an existing one is
-    reused here. Without HTTPS, Claude Desktop cannot reach plain HTTP anyway.
+    reused here. The merge writes the gateway credential, so the front must
+    first prove it belongs to this FCC install (identity secret match) — a
+    transport-level probe alone would hand the token to any local listener.
+    Without HTTPS, Claude Desktop cannot reach plain HTTP anyway.
     """
 
-    if probe_https(tls_root_url(settings)):
+    if probe_fcc_front(tls_root_url(settings), load_or_create_front_identity()):
         _merge_claude_desktop_config(settings)

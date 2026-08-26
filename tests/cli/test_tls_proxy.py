@@ -1,7 +1,11 @@
 """Tests for the HTTPS front proxy: probing, Caddyfile rendering, lifecycle."""
 
 import email.message
+import os
+import shutil
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -14,6 +18,8 @@ import pytest
 from free_claude_code.cli import tls_proxy
 from free_claude_code.cli.tls_proxy import CaddyTlsProxy, resolve_gateway_base_url
 from free_claude_code.config.settings import Settings
+
+TEST_IDENTITY_SECRET = "fcc-test-identity-secret"
 
 
 @pytest.fixture
@@ -49,12 +55,24 @@ def test_probe_https_false_when_nothing_listens(settings: Settings) -> None:
 def test_render_caddyfile_fronts_local_server(settings: Settings) -> None:
     proxy = CaddyTlsProxy(settings, home_dir=Path("/tmp/fcc-test-caddy"))
 
-    text = proxy.render_caddyfile()
+    text = proxy.render_caddyfile(TEST_IDENTITY_SECRET)
 
     assert "localhost:18443 {" in text
     assert "tls internal" in text
     assert "reverse_proxy 127.0.0.1:8082 {" in text
     assert "flush_interval -1" in text
+
+
+def test_render_caddyfile_serves_identity_secret_at_private_path(
+    settings: Settings,
+) -> None:
+    # The managed front must answer the identity probe itself so later
+    # launches can prove ownership before adopting it.
+    proxy = CaddyTlsProxy(settings, home_dir=Path("/tmp/fcc-test-caddy"))
+
+    text = proxy.render_caddyfile(TEST_IDENTITY_SECRET)
+
+    assert f'respond /.fcc-front-identity "{TEST_IDENTITY_SECRET}" 200' in text
 
 
 def _health_response(payload: bytes | str) -> MagicMock:
@@ -66,33 +84,53 @@ def _health_response(payload: bytes | str) -> MagicMock:
     return response
 
 
-def test_probe_fcc_front_true_for_fcc_health_marker() -> None:
+def test_probe_fcc_front_true_when_listener_serves_identity_secret() -> None:
+    with patch.object(
+        tls_proxy.urllib.request,
+        "urlopen",
+        MagicMock(return_value=_health_response(TEST_IDENTITY_SECRET)),
+    ) as urlopen:
+        assert (
+            tls_proxy.probe_fcc_front("https://localhost:18443", TEST_IDENTITY_SECRET)
+            is True
+        )
+
+    request = urlopen.call_args.args[0]
+    assert isinstance(request, urllib.request.Request)
+    assert request.full_url == "https://localhost:18443/.fcc-front-identity"
+
+
+def test_probe_fcc_front_rejects_forged_health_marker() -> None:
+    # Regression guard for the Greptile "unauthenticated health marker
+    # permits local TLS-front impersonation" finding: the publicly forgeable
+    # /health payload must never count as front identity, even though it is
+    # exactly what FCC's own /health endpoint serves.
     with patch.object(
         tls_proxy.urllib.request,
         "urlopen",
         MagicMock(return_value=_health_response('{"status": "healthy"}')),
-    ) as urlopen:
-        assert tls_proxy.probe_fcc_front("https://localhost:18443") is True
-
-    request = urlopen.call_args.args[0]
-    assert isinstance(request, urllib.request.Request)
-    assert request.full_url == "https://localhost:18443/health"
+    ):
+        assert (
+            tls_proxy.probe_fcc_front("https://localhost:18443", TEST_IDENTITY_SECRET)
+            is False
+        )
 
 
 def test_probe_fcc_front_false_for_foreign_or_broken_listener() -> None:
-    # An unrelated local listener that answers anything other than FCC's
-    # unauthenticated /health marker must never be adopted as the gateway.
+    # An unrelated local listener that answers anything other than this
+    # install's identity secret must never be adopted as the gateway.
     error = urllib.error.HTTPError(
-        "https://localhost:18443/health",
+        "https://localhost:18443/.fcc-front-identity",
         404,
         "Not Found",
         email.message.Message(),
         None,
     )
     responses = [
-        _health_response(b'{"status": "ok"}'),  # different payload
-        _health_response(b"not json"),  # non-JSON body
-        _health_response(b'["healthy"]'),  # JSON but not an object
+        _health_response(b"a-different-secret"),  # wrong secret
+        _health_response(b'{"status": "healthy"}'),  # forged health marker
+        _health_response(b""),  # empty body
+        _health_response(b"\xff\xfe"),  # non-UTF-8 body
     ]
     errors = [
         error,  # non-200 status through the TLS layer
@@ -104,32 +142,81 @@ def test_probe_fcc_front_false_for_foreign_or_broken_listener() -> None:
             "urlopen",
             MagicMock(return_value=response),
         ):
-            assert tls_proxy.probe_fcc_front("https://localhost:18443/") is False
+            assert (
+                tls_proxy.probe_fcc_front(
+                    "https://localhost:18443/", TEST_IDENTITY_SECRET
+                )
+                is False
+            )
     for error_side_effect in errors:
         with patch.object(
             tls_proxy.urllib.request,
             "urlopen",
             MagicMock(side_effect=error_side_effect),
         ):
-            assert tls_proxy.probe_fcc_front("https://localhost:18443/") is False
+            assert (
+                tls_proxy.probe_fcc_front(
+                    "https://localhost:18443/", TEST_IDENTITY_SECRET
+                )
+                is False
+            )
+
+
+def test_probe_fcc_front_false_without_identity_secret() -> None:
+    # No secret means nothing to compare against; never adopt.
+    assert tls_proxy.probe_fcc_front("https://localhost:18443", "") is False
+
+
+def test_load_or_create_front_identity_is_owner_only_and_stable(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "caddy"
+
+    first = tls_proxy.load_or_create_front_identity(home)
+    second = tls_proxy.load_or_create_front_identity(home)
+
+    assert first == second
+    assert len(first) == tls_proxy.FRONT_IDENTITY_BYTES * 2  # hex-encoded
+    secret_file = tls_proxy.front_identity_path(home)
+    assert secret_file.stat().st_mode & 0o777 == 0o600
+    assert secret_file.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_load_or_create_front_identity_survives_permissive_umask(
+    tmp_path: Path,
+) -> None:
+    # Under umask 000 the secret must still end up owner-only.
+    previous = os.umask(0)
+    try:
+        tls_proxy.load_or_create_front_identity(tmp_path / "caddy")
+    finally:
+        os.umask(previous)
+
+    secret_file = tls_proxy.front_identity_path(tmp_path / "caddy")
+    assert secret_file.stat().st_mode & 0o777 == 0o600
 
 
 def test_resolve_gateway_base_url_https_when_probe_succeeds(
     settings: Settings,
 ) -> None:
-    with patch.object(tls_proxy, "probe_fcc_front", return_value=True):
+    with (
+        patch.object(tls_proxy, "load_or_create_front_identity", return_value="secret"),
+        patch.object(tls_proxy, "probe_fcc_front", return_value=True) as probe,
+    ):
         url = resolve_gateway_base_url(settings)
 
     assert url == "https://localhost:18443"
+    probe.assert_called_once_with("https://localhost:18443", "secret")
 
 
 def test_resolve_gateway_base_url_https_requires_fcc_identity(
     settings: Settings,
 ) -> None:
-    # A TLS listener that is alive but does not serve FCC's health marker
-    # must not be adopted; routing falls back to plain HTTP.
+    # A TLS listener that is alive but cannot prove it belongs to this FCC
+    # install must not be adopted; routing falls back to plain HTTP.
     with (
         patch.object(tls_proxy, "probe_https", return_value=True),
+        patch.object(tls_proxy, "load_or_create_front_identity", return_value="s"),
         patch.object(tls_proxy, "probe_fcc_front", return_value=False),
     ):
         url = resolve_gateway_base_url(settings)
@@ -143,7 +230,13 @@ def test_resolve_gateway_base_url_http_when_disabled_or_unreachable(
     disabled = Settings(host="127.0.0.1", port=8082, tls_proxy_enabled=False)
 
     assert resolve_gateway_base_url(disabled) == "http://127.0.0.1:8082"
-    assert resolve_gateway_base_url(settings) == "http://127.0.0.1:8082"
+    # The enabled-but-unverified case must not touch the real home dir or
+    # network: pin identity and force the probe to fail.
+    with (
+        patch.object(tls_proxy, "load_or_create_front_identity", return_value="s"),
+        patch.object(tls_proxy, "probe_fcc_front", return_value=False),
+    ):
+        assert resolve_gateway_base_url(settings) == "http://127.0.0.1:8082"
 
 
 def test_start_reuses_external_front_without_spawning(
@@ -313,7 +406,80 @@ def test_managed_caddyfile_disables_admin_api(settings: Settings) -> None:
 
     # A system caddy may already own the default admin endpoint (port 2019);
     # the managed instance must never claim it.
-    assert "admin off" in proxy.render_caddyfile()
+    assert "admin off" in proxy.render_caddyfile(TEST_IDENTITY_SECRET)
+
+
+def test_start_writes_caddyfile_owner_only(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    # The Caddyfile embeds the identity secret; it must not be world-readable.
+    class FakeProcess:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.returncode = 0
+
+        def poll(self) -> int | None:
+            return None
+
+        def terminate(self) -> None: ...
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    home = tmp_path / "caddy"
+    with (
+        patch.object(tls_proxy, "probe_fcc_front", return_value=False),
+        patch.object(tls_proxy, "probe_https", return_value=True),
+        patch.object(tls_proxy.shutil, "which", return_value="/usr/bin/caddy"),
+        patch.object(tls_proxy.subprocess, "Popen", FakeProcess),
+    ):
+        proxy = CaddyTlsProxy(settings, home_dir=home)
+        assert proxy.start() is True
+
+    assert proxy.caddyfile_path.stat().st_mode & 0o777 == 0o600
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def test_managed_front_serves_identity_and_rejects_impersonation(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: the managed front proves ownership; impostors cannot.
+
+    Spawns the real managed caddy (skipped when absent) and verifies the
+    adoption probe accepts the front only with this install's secret —
+    the exact path Greptile's T-Rex exploited with a forged health marker.
+    """
+
+    if shutil.which(tls_proxy.CADDY_BINARY) is None:
+        pytest.skip("caddy binary not installed")
+
+    port = _free_port()
+    front_settings = Settings(host="127.0.0.1", port=1, tls_proxy_port=port)
+    home = tmp_path / "caddy"
+    proxy = CaddyTlsProxy(front_settings, home_dir=home)
+    base_url = f"https://localhost:{port}"
+    try:
+        assert proxy.start() is True
+        secret = tls_proxy.load_or_create_front_identity(home)
+
+        assert tls_proxy.probe_fcc_front(base_url, secret) is True
+        # A process that merely occupies the port cannot guess the secret.
+        assert tls_proxy.probe_fcc_front(base_url, "attacker-guess") is False
+    finally:
+        proxy.stop()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with socket.socket() as probe_sock:
+                try:
+                    probe_sock.connect(("127.0.0.1", port))
+                except OSError:
+                    break
+            time.sleep(0.1)
 
 
 @pytest.mark.parametrize("flag", ["--config", "--adapter"])

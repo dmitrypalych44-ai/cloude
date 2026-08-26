@@ -3,10 +3,11 @@
 Two cooperating pieces:
 
 1. ``probe_fcc_front`` / ``resolve_gateway_base_url`` — detect whether an
-   HTTPS endpoint that fronts *this* FCC server already answers on the
-   configured TLS port (verified via FCC's unauthenticated ``/health``
-   marker, since an adopted front also receives clients' API keys). Any
-   working external front is reused as-is; FCC never touches it.
+   HTTPS endpoint that fronts *this* FCC install already answers on the
+   configured TLS port. An adopted front also receives clients' API keys, so
+   identity is proven with a per-install secret the managed front serves at a
+   private path — never the publicly forgeable ``/health`` marker. Any
+   verified front is reused as-is; FCC never touches it.
 2. ``CaddyTlsProxy`` — when nothing answers and a ``caddy`` binary exists,
    spawn an FCC-managed instance: generated Caddyfile under ``~/.fcc/caddy/``
    with ``tls internal``, admin API disabled, and all of Caddy's state
@@ -15,10 +16,11 @@ Two cooperating pieces:
 """
 
 import http.client
-import json
 import os
+import secrets
 import shutil
 import ssl
+import stat
 import subprocess
 import urllib.error
 import urllib.request
@@ -32,7 +34,12 @@ from free_claude_code.config.settings import Settings
 CADDY_BINARY = "caddy"
 CADDY_HOME_DIRNAME = "caddy"
 READY_TIMEOUT_SECONDS = 10.0
-FCC_HEALTH_MARKER = {"status": "healthy"}
+# Private path the managed front answers on to prove it belongs to this FCC
+# install. Unrelated to any route FCC serves, so a reverse proxy in front of
+# FCC cannot collide with or forge it.
+FRONT_IDENTITY_PATH = "/.fcc-front-identity"
+FRONT_IDENTITY_FILENAME = "front-identity"
+FRONT_IDENTITY_BYTES = 32
 
 
 def _unverified_context() -> ssl.SSLContext:
@@ -65,18 +72,63 @@ def probe_https(url: str, timeout_seconds: float = 1.0) -> bool:
         return False
 
 
-def probe_fcc_front(base_url: str, timeout_seconds: float = 1.0) -> bool:
-    """Whether ``base_url`` fronts *this* FCC server, not just any TLS listener.
+def front_identity_path(home_dir: Path | None = None) -> Path:
+    """File holding this install's front-identity secret (owner-only)."""
 
-    Adopting an external front is a trust decision: whatever answers also
-    receives clients' API keys and inference traffic. A listener therefore only
-    counts as an existing front when it serves FCC's unauthenticated
-    ``/health`` marker through the TLS layer — which every reverse proxy in
-    front of FCC passes through untouched.
+    base = home_dir or (
+        Path(os.environ.get("FCC_CONFIG_HOME", Path.home() / ".fcc"))
+        / CADDY_HOME_DIRNAME
+    )
+    return base / FRONT_IDENTITY_FILENAME
+
+
+def load_or_create_front_identity(home_dir: Path | None = None) -> str:
+    """Return this install's front-identity secret, creating it once.
+
+    The secret is what proves a TLS listener belongs to this FCC install
+    before it is adopted as the credential-bearing gateway, so it must be
+    unguessable (256 random bits) and readable only by the owner regardless
+    of the process umask.
     """
 
-    health_url = f"{base_url.rstrip('/')}/health"
-    request = urllib.request.Request(health_url)
+    path = front_identity_path(home_dir)
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        existing = ""
+    if existing:
+        return existing
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    secret = secrets.token_hex(FRONT_IDENTITY_BYTES)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(secret)
+    # ``os.open`` mode is still filtered by umask at creation; force
+    # owner-only so a permissive umask cannot widen it.
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    return secret
+
+
+def probe_fcc_front(
+    base_url: str,
+    identity_secret: str,
+    timeout_seconds: float = 1.0,
+) -> bool:
+    """Whether ``base_url`` fronts *this* FCC install, not just any TLS listener.
+
+    Adopting an external front is a trust decision: whatever answers also
+    receives clients' API keys and inference traffic. A listener therefore
+    only counts as an existing front when it serves this install's
+    unguessable identity secret at the private identity path through the TLS
+    layer. The publicly forgeable ``/health`` marker is deliberately not
+    accepted — any local process can bind the port and serve it.
+    """
+
+    if not identity_secret:
+        return False
+    identity_url = f"{base_url.rstrip('/')}{FRONT_IDENTITY_PATH}"
+    request = urllib.request.Request(identity_url)
     try:
         with urllib.request.urlopen(
             request, timeout=timeout_seconds, context=_unverified_context()
@@ -93,13 +145,10 @@ def probe_fcc_front(base_url: str, timeout_seconds: float = 1.0) -> bool:
     ):
         return False
     try:
-        payload = json.loads(body)
-    except json.JSONDecodeError, UnicodeDecodeError:
+        served = body.decode("utf-8").strip()
+    except UnicodeDecodeError:
         return False
-    return (
-        isinstance(payload, dict)
-        and payload.get("status") == FCC_HEALTH_MARKER["status"]
-    )
+    return secrets.compare_digest(served, identity_secret)
 
 
 def tls_root_url(settings: Settings) -> str:
@@ -113,9 +162,16 @@ def tls_root_url(settings: Settings) -> str:
 
 
 def resolve_gateway_base_url(settings: Settings) -> str:
-    """Best gateway base URL: HTTPS when something fronts the TLS port, else HTTP."""
+    """Best gateway base URL: HTTPS when this install's front owns the TLS port.
 
-    if settings.tls_proxy_enabled and probe_fcc_front(tls_root_url(settings)):
+    Only a listener that proves it belongs to this FCC install (identity
+    secret match) is advertised as the gateway; anything else falls back to
+    plain HTTP so credentials are never routed to an unverified listener.
+    """
+
+    if settings.tls_proxy_enabled and probe_fcc_front(
+        tls_root_url(settings), load_or_create_front_identity()
+    ):
         return tls_root_url(settings)
     from free_claude_code.config.server_urls import local_proxy_root_url
 
@@ -151,8 +207,13 @@ class CaddyTlsProxy:
     def caddyfile_path(self) -> Path:
         return self._home_dir / "Caddyfile"
 
-    def render_caddyfile(self) -> str:
-        """Caddyfile text fronting the local FCC server with an internal cert."""
+    def render_caddyfile(self, identity_secret: str) -> str:
+        """Caddyfile text fronting the local FCC server with an internal cert.
+
+        The managed front also serves this install's identity secret at the
+        private identity path so later launches can prove ownership before
+        adopting it as the credential-bearing gateway.
+        """
 
         upstream_host = _browser_host_for_local_urls(self._settings)
         if ":" in upstream_host:
@@ -169,6 +230,7 @@ class CaddyTlsProxy:
                 "}",
                 f"localhost:{self._settings.tls_proxy_port} {{",
                 "    tls internal",
+                f'    respond {FRONT_IDENTITY_PATH} "{identity_secret}" 200',
                 f"    reverse_proxy {upstream} {{",
                 "        flush_interval -1",
                 "    }",
@@ -176,6 +238,16 @@ class CaddyTlsProxy:
                 "",
             ]
         )
+
+    def _write_caddyfile(self, text: str) -> None:
+        """Write the Caddyfile owner-only: it embeds the identity secret."""
+
+        descriptor = os.open(
+            self.caddyfile_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        self.caddyfile_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     def start(self) -> bool:
         """Start the managed proxy; returns whether HTTPS is now reachable.
@@ -189,7 +261,8 @@ class CaddyTlsProxy:
         if not self._settings.tls_proxy_enabled:
             return False
         target = tls_root_url(self._settings)
-        if probe_fcc_front(target):
+        identity = load_or_create_front_identity(self._home_dir)
+        if probe_fcc_front(target, identity):
             logger.info("Reusing existing FCC HTTPS front at {}", target)
             return True
 
@@ -202,8 +275,8 @@ class CaddyTlsProxy:
             )
             return False
 
-        self._home_dir.mkdir(parents=True, exist_ok=True)
-        self.caddyfile_path.write_text(self.render_caddyfile(), encoding="utf-8")
+        self._home_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._write_caddyfile(self.render_caddyfile(identity))
         env = dict(os.environ)
         env["XDG_DATA_HOME"] = str(self._home_dir / "data")
         env["XDG_CONFIG_HOME"] = str(self._home_dir / "config")
