@@ -321,6 +321,52 @@ def test_unconfigure_keeps_inference_keys_added_after_configure(
     assert result["inference"] == {"userAddedAfterConfigure": "keep"}
 
 
+def test_unconfigure_keeps_additions_when_fcc_created_inference(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """An inference entry FCC created must not swallow later additions."""
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"]["userAddedAfterConfigure"] = "must-survive"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert "modelDiscoveryEnabled" not in result
+    assert result["inference"] == {"userAddedAfterConfigure": "must-survive"}
+
+
+def test_unconfigure_restores_non_object_inference_entry(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Configure clobbers a non-object ``inference``; unconfigure restores it."""
+
+    original = json.dumps({"inference": "legacy-scalar"})
+    fake_config.write_text(original, encoding="utf-8")
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    assert json.loads(fake_config.read_text(encoding="utf-8"))["inference"] == (
+        "legacy-scalar"
+    )
+
+
 def test_save_config_writes_owner_only_permissions(
     fake_config: Path,
     fake_settings: Settings,

@@ -146,28 +146,37 @@ class _OwnershipEntry(TypedDict):
 class _OwnershipRecord:
     """What ``configure`` inserted or overwrote, for exact restoration.
 
-    When the pre-merge ``inference`` entry was an object only the managed
-    keys are tracked (``inference_keys``); otherwise FCC owns the whole
-    entry and ``inference_root`` snapshots it.
+    The managed inference keys are always tracked individually so values
+    added to ``inference`` after a merge survive unconfiguration. When the
+    pre-merge ``inference`` entry was not an object, configure replaced it
+    wholesale and ``inference_scalar`` snapshots what it clobbered.
     """
 
     discovery: _OwnershipEntry
-    inference_keys: dict[str, _OwnershipEntry] | None
-    inference_root: _OwnershipEntry | None
+    inference_existed: bool
+    inference_was_object: bool
+    inference_scalar: object | None
+    inference_keys: dict[str, _OwnershipEntry]
 
 
 _RECORD_SUFFIX = ".fcc-merge.json"
 _RECORD_INFERENCE_KEYS = "inferenceKeys"
+_RECORD_INFERENCE_EXISTED = "inferenceExisted"
+_RECORD_INFERENCE_WAS_OBJECT = "inferenceWasObject"
+_RECORD_INFERENCE_SCALAR = "inferenceScalar"
 
 
 def _record_payload(record: _OwnershipRecord) -> dict[str, object]:
     """JSON-able sidecar representation of ``record``."""
 
-    payload: dict[str, object] = {_DISCOVERY_KEY: record.discovery}
-    if record.inference_keys is not None:
-        payload[_RECORD_INFERENCE_KEYS] = record.inference_keys
-    if record.inference_root is not None:
-        payload[_INFERENCE_KEY] = record.inference_root
+    payload: dict[str, object] = {
+        _DISCOVERY_KEY: record.discovery,
+        _RECORD_INFERENCE_EXISTED: record.inference_existed,
+        _RECORD_INFERENCE_WAS_OBJECT: record.inference_was_object,
+        _RECORD_INFERENCE_KEYS: record.inference_keys,
+    }
+    if record.inference_existed and not record.inference_was_object:
+        payload[_RECORD_INFERENCE_SCALAR] = record.inference_scalar
     return payload
 
 
@@ -192,18 +201,26 @@ def _ownership_record(
     """Snapshot every managed key so unconfigure can restore exactly it."""
 
     discovery = _snapshot_entry(data, _DISCOVERY_KEY)
-    inference_raw = data.get(_INFERENCE_KEY)
-    if not isinstance(inference_raw, dict):
+    existed = _INFERENCE_KEY in data
+    raw = data.get(_INFERENCE_KEY)
+    keys = {
+        key: _snapshot_entry(raw if isinstance(raw, dict) else {}, key)
+        for key in managed_keys
+    }
+    if isinstance(raw, dict):
         return _OwnershipRecord(
             discovery=discovery,
-            inference_keys=None,
-            inference_root=_snapshot_entry(data, _INFERENCE_KEY),
+            inference_existed=True,
+            inference_was_object=True,
+            inference_scalar=None,
+            inference_keys=keys,
         )
-    inference = {str(key): value for key, value in inference_raw.items()}
     return _OwnershipRecord(
         discovery=discovery,
-        inference_keys={key: _snapshot_entry(inference, key) for key in managed_keys},
-        inference_root=None,
+        inference_existed=existed,
+        inference_was_object=False,
+        inference_scalar=raw if existed else None,
+        inference_keys=keys,
     )
 
 
@@ -234,25 +251,33 @@ def _load_ownership_record(path: Path) -> _OwnershipRecord | None:
     if discovery is None:
         return None
 
-    keys_raw = loaded.get(_RECORD_INFERENCE_KEYS)
-    if keys_raw is not None:
-        if not isinstance(keys_raw, dict):
-            return None
-        inference_keys: dict[str, _OwnershipEntry] = {}
-        for key, raw in keys_raw.items():
-            parsed = _parse_entry(raw)
-            if not isinstance(key, str) or parsed is None:
-                return None
-            inference_keys[key] = parsed
-        return _OwnershipRecord(
-            discovery=discovery, inference_keys=inference_keys, inference_root=None
-        )
-
-    root = _parse_entry(loaded.get(_INFERENCE_KEY))
-    if root is None:
+    existed = loaded.get(_RECORD_INFERENCE_EXISTED)
+    was_object = loaded.get(_RECORD_INFERENCE_WAS_OBJECT)
+    if not isinstance(existed, bool) or not isinstance(was_object, bool):
         return None
+
+    keys_raw = loaded.get(_RECORD_INFERENCE_KEYS)
+    if not isinstance(keys_raw, dict):
+        return None
+    inference_keys: dict[str, _OwnershipEntry] = {}
+    for key, raw in keys_raw.items():
+        parsed = _parse_entry(raw)
+        if not isinstance(key, str) or parsed is None:
+            return None
+        inference_keys[key] = parsed
+
+    scalar: object | None = None
+    if existed and not was_object:
+        if _RECORD_INFERENCE_SCALAR not in loaded:
+            return None
+        scalar = loaded[_RECORD_INFERENCE_SCALAR]
+
     return _OwnershipRecord(
-        discovery=discovery, inference_keys=None, inference_root=root
+        discovery=discovery,
+        inference_existed=existed,
+        inference_was_object=was_object,
+        inference_scalar=scalar,
+        inference_keys=inference_keys,
     )
 
 
@@ -364,17 +389,14 @@ def unconfigure_claude_desktop_config(path: Path | None = None) -> bool:
         del data[_DISCOVERY_KEY]
         changed = True
 
-    if record.inference_keys is not None:
+    if not record.inference_existed:
+        changed = _remove_inference_keys(data, record.inference_keys) or changed
+    elif record.inference_was_object:
         changed = _restore_inference_keys(data, record.inference_keys) or changed
-    else:
-        root = record.inference_root
-        if root is not None and root["present"]:
-            if _INFERENCE_KEY not in data or data[_INFERENCE_KEY] != root["value"]:
-                data[_INFERENCE_KEY] = root["value"]
-                changed = True
-        elif _INFERENCE_KEY in data:
-            del data[_INFERENCE_KEY]
-            changed = True
+    elif _INFERENCE_KEY not in data or data[_INFERENCE_KEY] != record.inference_scalar:
+        # Configure clobbered a non-object entry; restore what it replaced.
+        data[_INFERENCE_KEY] = record.inference_scalar
+        changed = True
 
     if changed:
         _save_config(config_path, data)
@@ -406,6 +428,37 @@ def _restore_inference_keys(
 
     if changed:
         data[_INFERENCE_KEY] = current
+    return changed
+
+
+def _remove_inference_keys(
+    data: dict[str, object],
+    owned: dict[str, _OwnershipEntry],
+) -> bool:
+    """Remove FCC-inserted inference keys; drop the entry when it empties.
+
+    Used when FCC created ``inference`` itself, so any fields added to it
+    after the merge survive unconfiguration.
+    """
+
+    raw = data.get(_INFERENCE_KEY)
+    current: dict[str, object] = (
+        {str(key): value for key, value in raw.items()} if isinstance(raw, dict) else {}
+    )
+    # Configure leaves ``inference`` an object; anything else is foreign.
+    changed = not isinstance(raw, dict)
+
+    for key in owned:
+        if key in current:
+            del current[key]
+            changed = True
+
+    if not changed:
+        return False
+    if current:
+        data[_INFERENCE_KEY] = current
+    else:
+        data.pop(_INFERENCE_KEY, None)
     return changed
 
 
