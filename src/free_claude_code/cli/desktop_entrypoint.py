@@ -4,7 +4,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from free_claude_code.cli import desktop_console, desktop_tray
+from free_claude_code.cli import desktop_console
 from free_claude_code.cli.desktop_assets import export_app_icon
 
 
@@ -25,5 +25,10 @@ def launch(argv: Sequence[str] | None = None) -> None:
     if sys.platform == "linux":
         desktop_console.launch()
         return
+
+    # Import lazily so a headless Linux session without a pystray backend
+    # can still run ``--export-icon`` and the console-mode fallback; the
+    # tray adapter is only needed on this native-tray branch.
+    from free_claude_code.cli import desktop_tray
 
     desktop_tray.launch()

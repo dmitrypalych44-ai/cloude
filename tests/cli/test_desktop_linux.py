@@ -1,5 +1,6 @@
 """Linux desktop shell: tray probe, console fallback, and entrypoint routing."""
 
+import contextlib
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,7 @@ import pytest
 
 from free_claude_code.cli.commands import ServerStatus
 from free_claude_code.cli.desktop import DesktopController
+from free_claude_code.cli.desktop_assets import app_icon_bytes
 from free_claude_code.cli.desktop_console import ConsoleDesktopTray, launch
 from free_claude_code.cli.desktop_entrypoint import launch as entrypoint_launch
 from free_claude_code.cli.desktop_tray import tray_is_available
@@ -200,3 +202,55 @@ def test_console_tray_lifecycle_drives_controller_to_clean_stop():
     # the idempotent stop; the null tray must survive both.
     assert events[0] == "server-run"
     assert events.count("server-stop") >= 1
+
+
+@contextlib.contextmanager
+def _headless_entrypoint():
+    """Import ``desktop_entrypoint`` as if the tray backend were broken.
+
+    Drops the cached entrypoint and tray modules, then makes the tray
+    module raise on import the way pystray does on a headless Linux
+    session without an X11/appindicator backend.
+    """
+    saved_entrypoint = sys.modules.pop("free_claude_code.cli.desktop_entrypoint", None)
+    saved_tray = sys.modules.pop("free_claude_code.cli.desktop_tray", None)
+    try:
+        with patch.dict(
+            sys.modules,
+            {"free_claude_code.cli.desktop_tray": _RaisingModule()},
+        ):
+            import free_claude_code.cli.desktop_entrypoint as fresh_entrypoint
+
+            yield fresh_entrypoint
+    finally:
+        sys.modules.pop("free_claude_code.cli.desktop_entrypoint", None)
+        if saved_entrypoint is not None:
+            sys.modules["free_claude_code.cli.desktop_entrypoint"] = saved_entrypoint
+        if saved_tray is not None:
+            sys.modules["free_claude_code.cli.desktop_tray"] = saved_tray
+
+
+def test_headless_entrypoint_import_survives_broken_tray_backend():
+    with _headless_entrypoint() as fresh_entrypoint:
+        assert callable(fresh_entrypoint.launch)
+
+
+def test_headless_entrypoint_still_exports_icon(tmp_path):
+    destination = tmp_path / "icons" / "app-icon.png"
+
+    with _headless_entrypoint() as fresh_entrypoint:
+        fresh_entrypoint.launch(["--export-icon", str(destination)])
+
+    assert destination.read_bytes() == app_icon_bytes(".png")
+
+
+def test_headless_entrypoint_routes_linux_to_console_mode(capsys):
+    with (
+        _headless_entrypoint() as fresh_entrypoint,
+        patch.object(sys, "platform", "linux"),
+        patch("free_claude_code.cli.desktop_console.launch_desktop") as start,
+    ):
+        fresh_entrypoint.launch([])
+
+    assert start.call_args.args[0] is ConsoleDesktopTray
+    assert "failed to load" in capsys.readouterr().out
