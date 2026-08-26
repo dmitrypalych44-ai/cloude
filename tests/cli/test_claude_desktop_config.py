@@ -28,7 +28,7 @@ def deterministic_gateway_url(monkeypatch: pytest.MonkeyPatch) -> None:
     real, so these tests also pin the desktop path prefix wiring.
     """
 
-    monkeypatch.setattr(tls_proxy, "probe_https", lambda *a, **kw: False)
+    monkeypatch.setattr(tls_proxy, "probe_fcc_front", lambda *a, **kw: False)
 
 
 def test_managed_block_derives_url_and_key_from_settings(
@@ -271,7 +271,7 @@ def test_main_configure_writes_block_without_subprocess(
     assert data["modelDiscoveryEnabled"] is True
 
 
-def test_launch_binary_spawns_with_certificate_flag(
+def test_launch_binary_spawns_without_certificate_bypass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
@@ -285,7 +285,7 @@ def test_launch_binary_spawns_with_certificate_flag(
 
     claude_desktop.launch_binary(["--extra"])
 
-    assert calls == [["/usr/bin/claude", "--ignore-certificate-errors", "--extra"]]
+    assert calls == [["/usr/bin/claude", "--extra"]]
 
 
 def test_launch_binary_raises_when_binary_missing(

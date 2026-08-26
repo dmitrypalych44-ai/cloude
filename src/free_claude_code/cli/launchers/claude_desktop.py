@@ -19,6 +19,8 @@ CLAUDE_DESKTOP_BINARY = routing.CLAUDE_DESKTOP_BINARY
 configure_claude_desktop_config = routing.configure_claude_desktop_config
 unconfigure_claude_desktop_config = routing.unconfigure_claude_desktop_config
 _config_path = routing._config_path
+load_existing_config = routing.load_existing_config
+MalformedConfigError = routing.MalformedConfigError
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -76,6 +78,22 @@ def launch(argv: Sequence[str] | None = None) -> None:
         configure_claude_desktop_config(parsed.config_path)
     except OSError as exc:
         print(f"Warning: could not merge the FCC routing block: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    # A malformed config cannot carry FCC routing; launching anyway would
+    # start Claude Desktop without model discovery or inference routing.
+    target = parsed.config_path or _config_path()
+    try:
+        load_existing_config(target)
+    except FileNotFoundError:
+        pass  # configure created a fresh config; nothing to validate.
+    except MalformedConfigError as exc:
+        print(
+            f"Refusing to launch Claude Desktop: malformed config at "
+            f"{exc.path}: {exc.reason}. Fix or remove the file and retry.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
 
     try:
         process = routing.launch_binary(tuple(parsed.binary_args))

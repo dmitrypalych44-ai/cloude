@@ -7,9 +7,9 @@ Two responsibilities:
    ``/v1/models`` discovery against the local FCC server. The gateway URL
    and auth key are derived from server settings, never hardcoded.
    ``unconfigure`` reverses the merge, preserving every other key.
-2. Locate the Claude Desktop binary and spawn it with
-   ``--ignore-certificate-errors`` (harmless on plain HTTP, required when
-   the user fronts FCC with a self-signed TLS proxy).
+2. Locate the Claude Desktop binary and spawn it. TLS trust for the local
+   FCC front comes from the certificate the install scripts add to the
+   per-user NSS store; no process-wide certificate bypass is used.
 
 The desktop controller applies the merge automatically at startup, and the
 tray exposes a "Launch Claude Desktop" item built on the same helpers.
@@ -17,7 +17,9 @@ tray exposes a "Launch Claude Desktop" item built on the same helpers.
 
 import argparse
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -113,12 +115,37 @@ def load_existing_config(path: Path) -> dict[str, object]:
 
 
 def _save_config(path: Path, data: dict[str, object]) -> None:
-    """Atomically write the merged config; create parent directories as needed."""
+    """Atomically write the merged config; create private directories.
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    The block embeds the gateway auth token, so the file is written with
+    owner-only permissions and the config directories stay owner-traversable
+    regardless of the process umask.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _restrict_permissions(path.parent)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2))
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     tmp_path.replace(path)
+
+
+def _restrict_permissions(directory: Path) -> None:
+    """Force an existing directory to owner-only modes.
+
+    ``mkdir(mode=...)`` only applies to directories it creates; a directory
+    that already exists keeps its modes, so tighten it explicitly.
+    """
+
+    current = directory.stat().st_mode
+    target = stat.S_IRWXU
+    if current & 0o777 != target:
+        directory.chmod(target)
 
 
 def configure_claude_desktop_config(
@@ -244,16 +271,17 @@ def find_binary() -> str | None:
 def launch_binary(
     extra_args: Sequence[str] = (),
 ) -> subprocess.Popen[bytes]:
-    """Spawn Claude Desktop with the certificate-tolerance flag."""
+    """Spawn Claude Desktop.
+
+    TLS trust for the local FCC front is provided by the certificate the
+    install scripts add to the per-user NSS store, so no process-wide
+    certificate bypass flag is passed.
+    """
 
     binary_path = find_binary()
     if binary_path is None:
         raise FileNotFoundError(CLAUDE_DESKTOP_BINARY)
-    command: list[str] = [
-        binary_path,
-        "--ignore-certificate-errors",
-        *extra_args,
-    ]
+    command: list[str] = [binary_path, *extra_args]
     return subprocess.Popen(command)
 
 

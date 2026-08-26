@@ -6,6 +6,8 @@ implementation (patched there for determinism).
 """
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -153,7 +155,7 @@ def test_config_path_resolver_returns_default_paths(
         assert path.is_absolute()
 
 
-def test_launch_runs_subprocess_with_ignore_certificate_errors(
+def test_launch_spawns_binary_without_certificate_bypass(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -179,13 +181,7 @@ def test_launch_runs_subprocess_with_ignore_certificate_errors(
             ["--config-path", str(fake_config), "/tmp/some extra path/"]
         )
     assert exc.value.code == 0
-    assert calls == [
-        [
-            "/usr/bin/claude-desktop",
-            "--ignore-certificate-errors",
-            "/tmp/some extra path/",
-        ]
-    ]
+    assert calls == [["/usr/bin/claude-desktop", "/tmp/some extra path/"]]
     data = json.loads(fake_config.read_text(encoding="utf-8"))
     assert data["modelDiscoveryEnabled"] is True
 
@@ -220,7 +216,7 @@ def test_launch_merges_config_before_spawning_binary(
     assert events == ["merge", "spawn"]
 
 
-def test_launch_still_spawns_when_merge_fails(
+def test_launch_aborts_when_merge_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -247,8 +243,10 @@ def test_launch_still_spawns_when_merge_fails(
     with pytest.raises(SystemExit) as exc:
         claude_desktop.launch(["--config-path", str(tmp_path / "absent.json")])
 
-    assert exc.value.code == 0
-    assert len(spawned) == 1
+    # Launching without routing leaves Claude Desktop pointing at Anthropic's
+    # own gateway, so a failed merge must abort instead of degrading silently.
+    assert exc.value.code == 1
+    assert spawned == []
     captured = capsys.readouterr()
     assert "could not merge the FCC routing block" in captured.err
 
@@ -289,3 +287,41 @@ def test_launch_configure_does_not_invoke_subprocess(
 
     data = json.loads(fake.read_text(encoding="utf-8"))
     assert data["modelDiscoveryEnabled"] is True
+
+
+def test_launch_refuses_malformed_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake = tmp_path / "claude_desktop_config.json"
+    fake.write_text("{not json", encoding="utf-8")
+
+    def fail_popen(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("malformed config must not reach the binary")
+
+    monkeypatch.setattr(routing.shutil, "which", lambda _: "/usr/bin/claude-desktop")
+    monkeypatch.setattr(routing.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "Refusing to launch Claude Desktop" in captured.err
+
+
+def test_save_config_permissions_survive_permissive_umask(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "Claude" / "claude_desktop_config.json"
+    previous_umask = os.umask(0o000)
+    try:
+        routing._save_config(target, {"modelDiscoveryEnabled": True})
+    finally:
+        os.umask(previous_umask)
+
+    # The merged block embeds the gateway auth token, so neither the config
+    # nor the directory holding it may be group/world readable.
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
