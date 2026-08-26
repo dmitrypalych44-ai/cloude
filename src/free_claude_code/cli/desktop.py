@@ -175,8 +175,10 @@ def _merge_when_https_front_exists(settings: Settings) -> None:
     A second desktop launch never spawns its own TLS proxy: whichever process
     owns the healthy server owns the front too, so only an existing one is
     reused here. The merge writes the gateway credential, so the front must
-    first prove it belongs to this FCC install (identity secret match) — a
-    transport-level probe alone would hand the token to any local listener.
+    first prove it belongs to this FCC install — its certificate must chain
+    to this install's managed CA and it must serve the identity secret. A
+    reusable secret over unverified TLS alone would hand the token to any
+    same-user process replaying it behind its own self-signed listener.
     Without HTTPS, Claude Desktop cannot reach plain HTTP anyway.
     """
 

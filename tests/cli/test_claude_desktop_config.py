@@ -29,6 +29,11 @@ def deterministic_gateway_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(tls_proxy, "probe_fcc_front", lambda *a, **kw: False)
+    # ``resolve_gateway_base_url`` loads the identity before probing; pin it
+    # so the real ``~/.fcc/caddy/front-identity`` is never created.
+    monkeypatch.setattr(
+        tls_proxy, "load_or_create_front_identity", lambda *a, **kw: "pinned"
+    )
 
 
 def test_managed_block_derives_url_and_key_from_settings(

@@ -5,9 +5,11 @@ Two cooperating pieces:
 1. ``probe_fcc_front`` / ``resolve_gateway_base_url`` — detect whether an
    HTTPS endpoint that fronts *this* FCC install already answers on the
    configured TLS port. An adopted front also receives clients' API keys, so
-   identity is proven with a per-install secret the managed front serves at a
-   private path — never the publicly forgeable ``/health`` marker. Any
-   verified front is reused as-is; FCC never touches it.
+   adoption demands two independent proofs: the listener's certificate must
+   chain to this install's managed CA root (ownership of the key material an
+   unrelated local process cannot forge), and it must serve the per-install
+   identity secret at a private path. Any verified front is reused as-is;
+   FCC never touches it.
 2. ``CaddyTlsProxy`` — when nothing answers and a ``caddy`` binary exists,
    spawn an FCC-managed instance: generated Caddyfile under ``~/.fcc/caddy/``
    with ``tls internal``, admin API disabled, and all of Caddy's state
@@ -22,6 +24,7 @@ import shutil
 import ssl
 import stat
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -40,36 +43,9 @@ READY_TIMEOUT_SECONDS = 10.0
 FRONT_IDENTITY_PATH = "/.fcc-front-identity"
 FRONT_IDENTITY_FILENAME = "front-identity"
 FRONT_IDENTITY_BYTES = 32
-
-
-def _unverified_context() -> ssl.SSLContext:
-    """TLS context accepting self-signed local certificates."""
-
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
-
-
-def probe_https(url: str, timeout_seconds: float = 1.0) -> bool:
-    """Whether ``url`` answers over TLS with any HTTP status.
-
-    Certificate errors are expected (self-signed local CA) and ignored;
-    only transport success counts.
-    """
-
-    try:
-        with urllib.request.urlopen(
-            url, timeout=timeout_seconds, context=_unverified_context()
-        ):
-            return True
-    except urllib.error.HTTPError as exc:
-        # Any HTTP status (404/401/502 ...) proves the TLS front is alive;
-        # only transport-level failures mean it is not ready.
-        exc.close()  # close the error body so no ResourceWarning fires at GC
-        return True
-    except urllib.error.URLError, OSError, ValueError:
-        return False
+# Where the managed caddy stores its internal CA, relative to the sandboxed
+# XDG_DATA_HOME set in ``CaddyTlsProxy.start``.
+_MANAGED_CA_PARTS = ("data", "caddy", "pki", "authorities", "local", "root.crt")
 
 
 def front_identity_path(home_dir: Path | None = None) -> Path:
@@ -82,11 +58,40 @@ def front_identity_path(home_dir: Path | None = None) -> Path:
     return base / FRONT_IDENTITY_FILENAME
 
 
+def managed_ca_path(home_dir: Path | None = None) -> Path:
+    """Root certificate of this install's managed caddy internal CA.
+
+    The managed caddy sandboxes all state under ``home_dir`` (its
+    ``XDG_DATA_HOME``), so its CA root lives at a fixed path inside it.
+    """
+
+    base = home_dir or front_identity_path().parent
+    return base.joinpath(*_MANAGED_CA_PARTS)
+
+
+def _front_ssl_context(ca_path: Path) -> ssl.SSLContext:
+    """TLS context that only trusts certificates issued by ``ca_path``.
+
+    Full chain validation plus hostname verification (``urllib`` pins the
+    request URL's host as the expected certificate name): a local process
+    that merely binds the port presents a self-signed certificate that does
+    not chain to this install's managed CA, so the handshake fails before
+    any request is sent to it.
+    """
+
+    context = ssl.create_default_context(cafile=str(ca_path))
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.hostname_checks_common_name = False
+    return context
+
+
 def load_or_create_front_identity(home_dir: Path | None = None) -> str:
     """Return this install's front-identity secret, creating it once.
 
-    The secret is what proves a TLS listener belongs to this FCC install
-    before it is adopted as the credential-bearing gateway, so it must be
+    The secret is one of the two proofs a TLS listener belongs to this FCC
+    install before it is adopted as the credential-bearing gateway (the
+    other is its certificate chaining to the managed CA), so it must be
     unguessable (256 random bits) and readable only by the owner regardless
     of the process umask.
     """
@@ -113,25 +118,41 @@ def load_or_create_front_identity(home_dir: Path | None = None) -> str:
 def probe_fcc_front(
     base_url: str,
     identity_secret: str,
+    home_dir: Path | None = None,
     timeout_seconds: float = 1.0,
 ) -> bool:
     """Whether ``base_url`` fronts *this* FCC install, not just any TLS listener.
 
     Adopting an external front is a trust decision: whatever answers also
     receives clients' API keys and inference traffic. A listener therefore
-    only counts as an existing front when it serves this install's
-    unguessable identity secret at the private identity path through the TLS
-    layer. The publicly forgeable ``/health`` marker is deliberately not
-    accepted — any local process can bind the port and serve it.
+    only counts as an existing front when both hold:
+
+    * its certificate validates against this install's managed CA root with
+      hostname verification — a reusable secret alone is a bearer value any
+      same-user process could read from disk and replay over its own
+      self-signed TLS, but such a listener's certificate never chains to the
+      managed CA;
+    * it serves this install's unguessable identity secret at the private
+      identity path.
+
+    Without the managed CA file there is nothing to verify against, so the
+    listener is never adopted and callers fall back to plain HTTP.
     """
 
     if not identity_secret:
+        return False
+    ca_path = managed_ca_path(home_dir)
+    if not ca_path.is_file():
+        return False
+    try:
+        context = _front_ssl_context(ca_path)
+    except OSError:
         return False
     identity_url = f"{base_url.rstrip('/')}{FRONT_IDENTITY_PATH}"
     request = urllib.request.Request(identity_url)
     try:
         with urllib.request.urlopen(
-            request, timeout=timeout_seconds, context=_unverified_context()
+            request, timeout=timeout_seconds, context=context
         ) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
@@ -164,9 +185,10 @@ def tls_root_url(settings: Settings) -> str:
 def resolve_gateway_base_url(settings: Settings) -> str:
     """Best gateway base URL: HTTPS when this install's front owns the TLS port.
 
-    Only a listener that proves it belongs to this FCC install (identity
-    secret match) is advertised as the gateway; anything else falls back to
-    plain HTTP so credentials are never routed to an unverified listener.
+    Only a listener that proves it belongs to this FCC install (certificate
+    chained to the managed CA plus identity secret match) is advertised as
+    the gateway; anything else falls back to plain HTTP so credentials are
+    never routed to an unverified listener.
     """
 
     if settings.tls_proxy_enabled and probe_fcc_front(
@@ -252,8 +274,9 @@ class CaddyTlsProxy:
     def start(self) -> bool:
         """Start the managed proxy; returns whether HTTPS is now reachable.
 
-        Reuses an existing external front — only after it proves it fronts
-        this FCC server — without spawning anything. Never raises: failures
+        Reuses an existing external front — only after its certificate
+        validates against this install's managed CA and it serves the
+        identity secret — without spawning anything. Never raises: failures
         are logged and reported as ``False`` so callers can fall back to
         plain HTTP.
         """
@@ -262,7 +285,7 @@ class CaddyTlsProxy:
             return False
         target = tls_root_url(self._settings)
         identity = load_or_create_front_identity(self._home_dir)
-        if probe_fcc_front(target, identity):
+        if probe_fcc_front(target, identity, self._home_dir):
             logger.info("Reusing existing FCC HTTPS front at {}", target)
             return True
 
@@ -301,10 +324,9 @@ class CaddyTlsProxy:
             self._process = None
             return False
 
-        deadline_ready = READY_TIMEOUT_SECONDS
+        deadline = time.monotonic() + READY_TIMEOUT_SECONDS
         step = 0.25
-        waited = 0.0
-        while waited < deadline_ready:
+        while time.monotonic() < deadline:
             if self._process.poll() is not None:
                 logger.warning(
                     "Managed caddy exited early with code {}; "
@@ -313,10 +335,16 @@ class CaddyTlsProxy:
                 )
                 self._process = None
                 return False
-            if probe_https(target, timeout_seconds=0.5):
+            # Readiness means the full adoption probe passes against our own
+            # child: certificate chained to the managed CA and identity
+            # secret served. A transport-only handshake would also accept an
+            # unrelated listener that raced us onto the port. The probe is
+            # skipped until the child has written its CA root, so the
+            # timeout must cover that bootstrap too.
+            if probe_fcc_front(target, identity, self._home_dir, 0.5):
                 logger.info("Managed HTTPS front ready at {}", target)
                 return True
-            waited += step
+            time.sleep(step)
 
         logger.warning(
             "Managed caddy did not become ready on {} in {}s; "

@@ -237,6 +237,8 @@ def test_desktop_attaches_to_terminal_server_instead_of_binding_twice() -> None:
         patch.object(desktop, "load_server_settings", return_value=settings),
         patch.object(desktop, "InterprocessFileLock", return_value=instance_lock),
         patch.object(desktop, "preflight_proxy", return_value=None),
+        patch.object(desktop, "load_or_create_front_identity", return_value="secret"),
+        patch.object(desktop, "probe_fcc_front", return_value=False),
         patch.object(desktop, "open_admin_when_ready", return_value=True) as open_admin,
         patch.object(desktop, "ServerSupervisor") as supervisor,
     ):
