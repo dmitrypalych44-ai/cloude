@@ -404,19 +404,33 @@ def unconfigure_claude_desktop_config(path: Path | None = None) -> bool:
     return changed
 
 
+def _current_inference_object(
+    data: dict[str, object],
+) -> dict[str, object] | None:
+    """The live ``inference`` mapping FCC wrote, or ``None`` once user-owned.
+
+    Configure leaves ``inference`` an object; a missing entry or any other
+    JSON value means the user replaced or removed it wholesale and it is no
+    longer FCC's to touch.
+    """
+
+    raw = data.get(_INFERENCE_KEY)
+    if not isinstance(raw, dict):
+        return None
+    return {str(key): value for key, value in raw.items()}
+
+
 def _restore_inference_keys(
     data: dict[str, object],
     owned: dict[str, _OwnershipEntry],
 ) -> bool:
     """Restore or remove only FCC-managed inference keys, keeping the rest."""
 
-    raw = data.get(_INFERENCE_KEY)
-    current: dict[str, object] = (
-        {str(key): value for key, value in raw.items()} if isinstance(raw, dict) else {}
-    )
-    # Configure leaves ``inference`` an object; anything else is foreign.
-    changed = not isinstance(raw, dict)
+    current = _current_inference_object(data)
+    if current is None:
+        return False
 
+    changed = False
     for key, entry in owned.items():
         if entry["present"]:
             if key not in current or current[key] != entry["value"]:
@@ -441,13 +455,11 @@ def _remove_inference_keys(
     after the merge survive unconfiguration.
     """
 
-    raw = data.get(_INFERENCE_KEY)
-    current: dict[str, object] = (
-        {str(key): value for key, value in raw.items()} if isinstance(raw, dict) else {}
-    )
-    # Configure leaves ``inference`` an object; anything else is foreign.
-    changed = not isinstance(raw, dict)
+    current = _current_inference_object(data)
+    if current is None:
+        return False
 
+    changed = False
     for key in owned:
         if key in current:
             del current[key]
@@ -458,7 +470,7 @@ def _remove_inference_keys(
     if current:
         data[_INFERENCE_KEY] = current
     else:
-        data.pop(_INFERENCE_KEY, None)
+        del data[_INFERENCE_KEY]
     return changed
 
 

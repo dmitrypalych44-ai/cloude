@@ -321,6 +321,60 @@ def test_unconfigure_keeps_inference_keys_added_after_configure(
     assert result["inference"] == {"userAddedAfterConfigure": "keep"}
 
 
+def test_unconfigure_preserves_user_replaced_inference_value(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """A non-object ``inference`` after configure is user-owned, not ours."""
+
+    fake_config.write_text(
+        json.dumps({"inference": {"provider": "anthropic"}}), encoding="utf-8"
+    )
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    data["inference"] = "user-replaced-scalar"
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    # Unconfigure still removes the FCC-owned discovery key.
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert "modelDiscoveryEnabled" not in result
+    assert result["inference"] == "user-replaced-scalar"
+
+
+def test_unconfigure_preserves_user_deleted_inference_entry(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    """Removing ``inference`` wholesale after configure must be respected."""
+
+    assert (
+        claude_desktop.configure_claude_desktop_config(
+            fake_config, settings=fake_settings
+        )
+        is True
+    )
+
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    del data["inference"]
+    fake_config.write_text(json.dumps(data), encoding="utf-8")
+
+    # Unconfigure still removes the FCC-owned discovery key.
+    assert claude_desktop.unconfigure_claude_desktop_config(fake_config) is True
+
+    result = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert "modelDiscoveryEnabled" not in result
+    assert "inference" not in result
+
+
 def test_unconfigure_keeps_additions_when_fcc_created_inference(
     fake_config: Path,
     fake_settings: Settings,
