@@ -1,12 +1,13 @@
 """Runtime seeding for picker aliases via ``ApplicationRuntime``."""
 
-from unittest.mock import MagicMock
+from typing import cast
 
 import pytest
 
 from free_claude_code.application.model_metadata import ProviderModelInfo
 from free_claude_code.core import gateway_model_ids as gmi
 from free_claude_code.runtime.application import ApplicationRuntime
+from free_claude_code.runtime.provider_manager import ProviderRuntimeManager
 
 
 @pytest.fixture(autouse=True)
@@ -16,17 +17,36 @@ def _isolate_alias_state():
     gmi.clear_picker_aliases()
 
 
-def _make_runtime_with_models(model_ids):
-    provider_manager = MagicMock()
-    provider_manager.cached_prefixed_model_infos.return_value = tuple(
-        ProviderModelInfo(model_id=model_id, supports_thinking=None)
-        for model_id in model_ids
+class _SeedingProviderManager:
+    """Stand-in honoring the manager's alias-refresh contract."""
+
+    def __init__(self, model_ids: list[str]) -> None:
+        self._model_ids = model_ids
+        self.refresh_calls = 0
+
+    def refresh_picker_aliases(self) -> None:
+        self.refresh_calls += 1
+        infos = tuple(
+            ProviderModelInfo(model_id=model_id, supports_thinking=None)
+            for model_id in self._model_ids
+        )
+        gmi.seed_picker_aliases(info.model_id for info in infos)
+
+
+def _make_runtime_with_models(
+    model_ids: list[str],
+) -> tuple[ApplicationRuntime, _SeedingProviderManager]:
+    provider_manager = _SeedingProviderManager(model_ids)
+    return (
+        ApplicationRuntime(
+            cast(ProviderRuntimeManager, provider_manager), transcriber=None
+        ),
+        provider_manager,
     )
-    return ApplicationRuntime(provider_manager, transcriber=None)
 
 
 def test_seed_picker_aliases_from_cache_populates_maps():
-    runtime = _make_runtime_with_models(
+    runtime, _manager = _make_runtime_with_models(
         ["nvidia_nim/01-ai/yi-large", "nvidia_nim/meta/llama-3.3-70b-instruct"]
     )
 
@@ -45,7 +65,7 @@ def test_seed_picker_aliases_from_cache_populates_maps():
 
 
 def test_seed_picker_aliases_with_empty_cache_leaves_state_inert():
-    runtime = _make_runtime_with_models([])
+    runtime, _manager = _make_runtime_with_models([])
 
     runtime._seed_picker_aliases_from_cache()
 
@@ -54,17 +74,18 @@ def test_seed_picker_aliases_with_empty_cache_leaves_state_inert():
 
 
 def test_seed_picker_aliases_uses_sorted_input_for_counter_stability():
-    first_runtime = _make_runtime_with_models(
+    first_runtime, first_manager = _make_runtime_with_models(
         [
             "nvidia_nim/z-provider/z-model",
             "nvidia_nim/a-provider/a-model",
         ]
     )
     first_runtime._seed_picker_aliases_from_cache()
+    assert first_manager.refresh_calls == 1
     first_alias_for_a = gmi.picker_alias_for("nvidia_nim/a-provider/a-model")
     gmi.clear_picker_aliases()
 
-    second_runtime = _make_runtime_with_models(
+    second_runtime, _manager = _make_runtime_with_models(
         [
             "nvidia_nim/a-provider/a-model",
             "nvidia_nim/z-provider/z-model",

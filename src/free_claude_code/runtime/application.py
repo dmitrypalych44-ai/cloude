@@ -34,7 +34,6 @@ from free_claude_code.config.model_refs import parse_provider_type
 from free_claude_code.config.paths import messaging_state_dir_path
 from free_claude_code.config.server_urls import local_admin_url, local_proxy_root_url
 from free_claude_code.config.settings import Settings
-from free_claude_code.core.gateway_model_ids import seed_picker_aliases
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.messaging.platforms import factory as messaging_platform_factory
 from free_claude_code.messaging.platforms.factory import MessagingPlatformOptions
@@ -340,15 +339,12 @@ class ApplicationRuntime:
         }
 
     def _seed_picker_aliases_from_cache(self) -> None:
-        """Populate the process-global picker alias maps from the warmed cache.
+        """Publish picker aliases for exactly the cached model inventory.
 
-        Sourced from the synchronous snapshot returned by
-        :meth:`ProviderRuntimeManager.cached_prefixed_model_infos` so the
-        mapping is deterministic on every startup and contains exactly the
-        refs the model catalog would otherwise wrap.
+        Delegates to the provider manager so startup seeding and every later
+        model-catalog republication share one ownership path.
         """
-        infos = self.provider_manager.cached_prefixed_model_infos()
-        seed_picker_aliases(info.model_id for info in infos)
+        self.provider_manager.refresh_picker_aliases()
 
     async def _start_messaging_if_configured(self) -> None:
         try:
