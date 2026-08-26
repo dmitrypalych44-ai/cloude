@@ -353,6 +353,71 @@ def test_serve_supervisor_orders_tls_front_around_each_generation() -> None:
     ]
 
 
+@pytest.mark.parametrize("tls_ready", [True, False])
+def test_serve_publishes_desktop_gateway_url_matching_tls_readiness(
+    tls_ready: bool,
+) -> None:
+    """The supervisor publishes the live desktop-scoped gateway URL.
+
+    End-to-end guard for the Greptile "desktop gateway URL is
+    unpublished" finding: after the generation's HTTPS front is started,
+    ``desktop_gateway_url()`` resolves to the TLS-prefixed endpoint when a
+    front answers, and to the plain-HTTP fallback when it does not. The URL
+    is cleared once the supervisor shuts down so a stopped server never
+    advertises a dead endpoint.
+    """
+    from free_claude_code.cli import commands, tls_proxy
+
+    settings = _launcher_settings(port=8082).model_copy(
+        update={
+            "tls_proxy_enabled": True,
+            "tls_proxy_port": 18443,
+            "desktop_gateway_prefix": "claude-desktop",
+        }
+    )
+    published: list[str | None] = []
+
+    def build_asgi_app(_settings: Settings, restart_callback: Callable[[], None]):
+        return SimpleNamespace(runtime=SimpleNamespace(is_closed=False))
+
+    def fake_config(app, **kwargs):
+        return SimpleNamespace(app=app, kwargs=kwargs)
+
+    supervisor = commands.ServerSupervisor(console_logging=False)
+
+    class FakeServer:
+        def __init__(self, config):
+            self.config = config
+            self.should_exit = False
+
+        def run(self):
+            # Capture the URL the generation published while it is live.
+            published.append(supervisor.desktop_gateway_url())
+            self.config.app.runtime.is_closed = True
+
+    with (
+        patch.object(commands, "load_server_settings", return_value=settings),
+        patch.object(commands.uvicorn, "Config", side_effect=fake_config),
+        patch.object(commands.uvicorn, "Server", side_effect=FakeServer),
+        patch.object(commands, "build_asgi_app", side_effect=build_asgi_app),
+        patch.object(commands, "CaddyTlsProxy"),
+        patch.object(tls_proxy, "probe_fcc_front", return_value=tls_ready),
+        patch.object(commands, "schedule_open_admin_browser"),
+        patch.object(commands, "kill_all_best_effort"),
+    ):
+        assert supervisor.desktop_gateway_url() is None
+        supervisor.run(open_admin_browser=False)
+
+    expected = (
+        "https://localhost:18443/claude-desktop"
+        if tls_ready
+        else "http://127.0.0.1:8082/claude-desktop"
+    )
+    assert published == [expected]
+    # Cleared on shutdown so a stopped server advertises nothing.
+    assert supervisor.desktop_gateway_url() is None
+
+
 def test_serve_handles_keyboard_interrupt_without_traceback() -> None:
     from free_claude_code.cli import commands
 

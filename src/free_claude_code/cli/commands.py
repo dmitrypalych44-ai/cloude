@@ -6,10 +6,11 @@ import webbrowser
 from enum import StrEnum
 
 import uvicorn
+from loguru import logger
 
 from free_claude_code.cli.launchers.common import preflight_proxy
 from free_claude_code.cli.process_registry import kill_all_best_effort
-from free_claude_code.cli.tls_proxy import CaddyTlsProxy
+from free_claude_code.cli.tls_proxy import CaddyTlsProxy, desktop_gateway_base_url
 from free_claude_code.config.loader import clear_settings_cache, get_settings
 from free_claude_code.config.server_urls import local_admin_url, local_proxy_root_url
 from free_claude_code.config.settings import Settings
@@ -39,6 +40,7 @@ class ServerSupervisor:
         self._console_logging = console_logging
         self._lock = threading.Lock()
         self._server: uvicorn.Server | None = None
+        self._desktop_gateway_url: str | None = None
         self._run_scheduled = False
         self._running = False
         self._stop_requested = False
@@ -58,6 +60,18 @@ class ServerSupervisor:
             if self._server.started:
                 return ServerStatus.RUNNING
             return ServerStatus.STARTING
+
+    def desktop_gateway_url(self) -> str | None:
+        """The desktop-scoped gateway URL the active generation is serving.
+
+        Resolved once the generation's HTTPS front has been started (or the
+        plain-HTTP fallback chosen), so Claude Desktop integrations read the
+        live endpoint rather than a stale or not-yet-ready value. ``None``
+        before the first generation publishes one.
+        """
+
+        with self._lock:
+            return self._desktop_gateway_url
 
     def schedule_run(self) -> bool:
         """Reserve a worker run before its thread starts."""
@@ -104,6 +118,7 @@ class ServerSupervisor:
         finally:
             with self._lock:
                 self._server = None
+                self._desktop_gateway_url = None
                 self._running = False
             kill_all_best_effort()
 
@@ -170,6 +185,13 @@ class ServerSupervisor:
         tls_front = CaddyTlsProxy(settings)
         try:
             tls_front.start()
+            # Publish the desktop-scoped gateway URL this generation serves:
+            # the HTTPS root when the front answered, else the plain-HTTP
+            # fallback. Desktop integrations read this instead of guessing.
+            gateway_url = desktop_gateway_base_url(settings)
+            with self._lock:
+                self._desktop_gateway_url = gateway_url
+            logger.info("Claude Desktop gateway: {}", gateway_url)
             if open_admin_browser:
                 schedule_open_admin_browser(settings)
             server.run()
