@@ -4,6 +4,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from free_claude_code.cli import desktop_console, desktop_tray
+from free_claude_code.cli.claude_desktop import configure_claude_desktop_config
 from free_claude_code.cli.desktop_assets import export_app_icon
 
 
@@ -17,10 +19,16 @@ def launch(argv: Sequence[str] | None = None) -> None:
     if args:
         print("Usage: fcc-desktop [--export-icon PATH]", file=sys.stderr)
         raise SystemExit(2)
-    if sys.platform not in {"darwin", "win32"}:
-        print("FCC Desktop is supported on Windows and macOS.", file=sys.stderr)
+    if sys.platform not in {"darwin", "win32", "linux"}:
+        print("FCC Desktop is supported on Windows, macOS, and Linux.", file=sys.stderr)
         raise SystemExit(1)
 
-    from free_claude_code.cli.desktop_tray import launch as launch_tray
+    # Merge the FCC gateway routing block before any Claude Desktop session
+    # starts so model discovery and inference run through this server.
+    configure_claude_desktop_config()
 
-    launch_tray()
+    if sys.platform == "linux":
+        desktop_console.launch()
+        return
+
+    desktop_tray.launch()

@@ -1,18 +1,26 @@
-"""pystray adapter for the Windows tray and macOS menu bar."""
+"""pystray adapter for the Windows tray, macOS menu bar, and Linux status area."""
 
 from io import BytesIO
+from typing import TYPE_CHECKING
 
 from PIL import Image
-from pystray import Icon, Menu, MenuItem
 
 from free_claude_code.cli.desktop import DesktopController, launch_desktop
 from free_claude_code.cli.desktop_assets import app_icon_bytes
+
+if TYPE_CHECKING:
+    from pystray import Icon, MenuItem
 
 
 class PystrayDesktopTray:
     """Render desktop lifecycle actions through the native status area."""
 
     def __init__(self, controller: DesktopController) -> None:
+        # Imported here, not at module scope: pystray resolves an X11 display
+        # during import and crashes headless environments that only ever want
+        # the console fallback this module's probe supports.
+        from pystray import Icon, Menu, MenuItem
+
         self._controller = controller
         self._icon = Icon(
             "free-claude-code",
@@ -54,6 +62,39 @@ def _create_icon() -> Image.Image:
 
     with Image.open(BytesIO(app_icon_bytes(".png"))) as image:
         return image.convert("RGBA")
+
+
+_TRAY_BACKEND_HINT = (
+    "no supported tray backend is available; install "
+    "'gir1.2-ayatanaappindicator3-0.1' (Debian/Ubuntu) or "
+    "'libappindicator-gtk3' (Fedora), or use an X11 session"
+)
+
+
+def tray_is_available() -> tuple[bool, str]:
+    """Probe whether a native tray icon can be constructed on this desktop.
+
+    Constructing the pystray ``Icon`` resolves the platform backend module;
+    on Linux that import fails when no AppIndicator/GTK/X11 backend exists.
+    The probe discards the constructed icon without ever showing it.
+
+    Returns ``(True, "")`` when a tray can run, otherwise ``(False, reason)``
+    with an actionable message for console fallback mode.
+    """
+
+    try:
+        image = _create_icon()
+    except Exception as exc:
+        return False, f"tray icon artwork failed to load: {exc}"
+    try:
+        from pystray import Icon
+
+        Icon("free-claude-code", image, "Free Claude Code")
+    except Exception as exc:
+        if isinstance(exc, ImportError):
+            return False, _TRAY_BACKEND_HINT
+        return False, str(exc)
+    return True, ""
 
 
 def launch() -> None:
