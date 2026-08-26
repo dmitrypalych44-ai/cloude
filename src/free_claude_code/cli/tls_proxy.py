@@ -26,7 +26,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from free_claude_code.config.server_urls import _browser_host_for_local_urls
+from free_claude_code.config.server_urls import (
+    _browser_host_for_local_urls,
+    local_proxy_root_url,
+)
 from free_claude_code.config.settings import Settings
 
 CADDY_BINARY = "caddy"
@@ -117,8 +120,6 @@ def resolve_gateway_base_url(settings: Settings) -> str:
 
     if settings.tls_proxy_enabled and probe_fcc_front(tls_root_url(settings)):
         return tls_root_url(settings)
-    from free_claude_code.config.server_urls import local_proxy_root_url
-
     return local_proxy_root_url(settings)
 
 
@@ -202,7 +203,7 @@ class CaddyTlsProxy:
             )
             return False
 
-        self._home_dir.mkdir(parents=True, exist_ok=True)
+        self._home_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.caddyfile_path.write_text(self.render_caddyfile(), encoding="utf-8")
         env = dict(os.environ)
         env["XDG_DATA_HOME"] = str(self._home_dir / "data")
