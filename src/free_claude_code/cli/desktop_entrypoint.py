@@ -4,6 +4,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from free_claude_code.cli import desktop_console, desktop_tray
 from free_claude_code.cli.desktop_assets import export_app_icon
 
 
@@ -22,11 +23,7 @@ def launch(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(1)
 
     if sys.platform == "linux":
-        from free_claude_code.cli.desktop_console import launch as launch_console
-
-        launch_console()
+        desktop_console.launch()
         return
 
-    from free_claude_code.cli.desktop_tray import launch as launch_tray
-
-    launch_tray()
+    desktop_tray.launch()
