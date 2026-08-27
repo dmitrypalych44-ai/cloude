@@ -203,30 +203,56 @@ def test_console_tray_lifecycle_drives_controller_to_clean_stop():
     assert events.count("server-stop") >= 1
 
 
-def test_merge_claude_desktop_config_forwards_settings():
-    from free_claude_code.cli.desktop import _merge_claude_desktop_config
+def test_merge_verified_gateway_passes_verified_url_explicitly():
+    from free_claude_code.cli.desktop import _merge_verified_gateway
 
     settings = MagicMock(name="settings")
+    verified_url = "https://localhost:8443/claude-desktop"
     with (
+        patch(
+            "free_claude_code.cli.desktop.verified_https_gateway_url",
+            return_value=verified_url,
+        ),
         patch(
             "free_claude_code.cli.desktop.configure_claude_desktop_config"
         ) as configure,
     ):
-        _merge_claude_desktop_config(settings)
+        _merge_verified_gateway(settings)
 
-    configure.assert_called_once_with(settings=settings)
+    configure.assert_called_once_with(settings=settings, gateway_base_url=verified_url)
 
 
-def test_merge_claude_desktop_config_swallows_failures():
-    from free_claude_code.cli.desktop import _merge_claude_desktop_config
+def test_merge_verified_gateway_skips_when_front_unverified():
+    from free_claude_code.cli.desktop import _merge_verified_gateway
 
     with (
+        patch(
+            "free_claude_code.cli.desktop.verified_https_gateway_url",
+            return_value=None,
+        ),
+        patch(
+            "free_claude_code.cli.desktop.configure_claude_desktop_config"
+        ) as configure,
+    ):
+        _merge_verified_gateway(MagicMock(name="settings"))
+
+    configure.assert_not_called()
+
+
+def test_merge_verified_gateway_swallows_failures():
+    from free_claude_code.cli.desktop import _merge_verified_gateway
+
+    with (
+        patch(
+            "free_claude_code.cli.desktop.verified_https_gateway_url",
+            return_value="https://localhost:8443/claude-desktop",
+        ),
         patch(
             "free_claude_code.cli.desktop.configure_claude_desktop_config",
             side_effect=OSError("disk full"),
         ),
     ):
-        _merge_claude_desktop_config(MagicMock(name="settings"))  # must not raise
+        _merge_verified_gateway(MagicMock(name="settings"))  # must not raise
 
 
 def test_launch_desktop_merges_claude_desktop_config():
@@ -234,20 +260,24 @@ def test_launch_desktop_merges_claude_desktop_config():
 
     merged: list[object] = []
 
-    def fake_configure(path=None, settings=None):
-        merged.append(settings)
+    def fake_configure(path=None, settings=None, gateway_base_url=None):
+        merged.append(gateway_base_url)
         return True
 
     supervisor = MagicMock()
     supervisor.schedule_run.return_value = True
     supervisor.status = ServerStatus.STOPPED
+    verified_url = "https://localhost:8443/claude-desktop"
 
     with (
         patch.object(desktop_module, "load_server_settings") as load_settings,
         patch.object(desktop_module.InterprocessFileLock, "acquire", return_value=True),
         patch.object(desktop_module, "preflight_proxy", return_value=object()),
         patch.object(desktop_module, "CaddyTlsProxy") as tls_proxy_cls,
-        patch.object(desktop_module, "_merge_claude_desktop_config", fake_configure),
+        patch.object(
+            desktop_module, "verified_https_gateway_url", return_value=verified_url
+        ),
+        patch.object(desktop_module, "configure_claude_desktop_config", fake_configure),
         patch.object(desktop_module, "DesktopController", MagicMock()) as controller,
     ):
         load_settings.return_value = MagicMock(name="settings")
@@ -257,7 +287,7 @@ def test_launch_desktop_merges_claude_desktop_config():
         with contextlib.suppress(RuntimeError):
             desktop_module.launch_desktop(MagicMock())
 
-    assert len(merged) == 1
+    assert merged == [verified_url]
     tls_proxy_cls.return_value.start.assert_called_once()
     tls_proxy_cls.return_value.stop.assert_called_once()
 
