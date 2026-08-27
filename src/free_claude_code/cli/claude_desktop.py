@@ -339,7 +339,9 @@ def _routing_block_present(gateway_url: str) -> bool:
 
     try:
         data = load_existing_config(_config_path())
-    except FileNotFoundError, MalformedConfigError:
+    except FileNotFoundError:
+        return False
+    except MalformedConfigError:
         return False
     inference = data.get(_INFERENCE_KEY)
     if not isinstance(inference, dict):
