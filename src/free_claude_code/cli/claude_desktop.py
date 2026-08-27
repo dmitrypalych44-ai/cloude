@@ -299,8 +299,15 @@ def ensure_configured_and_launch(
     belongs to this FCC install, and the launch is refused instead of
     pointing the credential at an unverified or cleartext listener.
 
+    The merge result is also verified before spawning: ``configure`` returns
+    ``False`` both when it skips a malformed config and when an earlier merge
+    already matches, so the block is read back and the launch refused unless
+    the routing actually landed. Launching on a skipped (malformed) config
+    would start Claude Desktop without FCC routing.
+
     Raises:
-        RuntimeError: If no verified HTTPS front answers.
+        RuntimeError: If no verified HTTPS front answers, or the routing
+            block did not land in the config.
         FileNotFoundError: If no Claude Desktop binary can be located.
     """
 
@@ -313,7 +320,34 @@ def ensure_configured_and_launch(
             "front) or enable the caddy TLS proxy, then retry."
         )
     configure_claude_desktop_config(settings=resolved, gateway_base_url=gateway_url)
+    if not _routing_block_present(gateway_url):
+        raise RuntimeError(
+            "Refusing to launch Claude Desktop: the FCC routing block could "
+            "not be written to the config (it may be malformed). Fix or "
+            "remove the config file and retry."
+        )
     return launch_binary()
+
+
+def _routing_block_present(gateway_url: str) -> bool:
+    """Whether the managed routing block actually landed in the config.
+
+    Distinguishes a successful (possibly idempotent) merge from a skipped
+    malformed config, which ``configure_claude_desktop_config`` reports with
+    the same ``False`` return.
+    """
+
+    try:
+        data = load_existing_config(_config_path())
+    except FileNotFoundError, MalformedConfigError:
+        return False
+    inference = data.get(_INFERENCE_KEY)
+    if not isinstance(inference, dict):
+        return False
+    return (
+        data.get(_DISCOVERY_KEY) is True
+        and inference.get("inferenceGatewayBaseUrl") == gateway_url
+    )
 
 
 def _build_argparser() -> argparse.ArgumentParser:

@@ -334,6 +334,8 @@ def test_ensure_configured_and_launch_merges_then_spawns(
     monkeypatch.setattr(
         claude_desktop, "verified_https_gateway_url", lambda settings: verified_url
     )
+    # The post-merge read-back must observe the same file the merge wrote.
+    monkeypatch.setattr(claude_desktop, "_config_path", lambda: config_path)
     monkeypatch.setattr(claude_desktop, "find_binary", lambda: "/usr/bin/claude")
     monkeypatch.setattr(claude_desktop.subprocess, "Popen", FakeProcess)
 
@@ -344,6 +346,36 @@ def test_ensure_configured_and_launch_merges_then_spawns(
     # The routing block must point at the verified HTTPS front, never the
     # plain-HTTP fallback.
     assert gateway_urls == [verified_url]
+
+
+def test_ensure_configured_and_launch_refuses_when_merge_skips_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_settings: Settings,
+) -> None:
+    # Regression guard for the Greptile "launch after malformed config"
+    # finding: ``configure`` returns ``False`` when it skips a malformed
+    # config, so the launch must be refused rather than spawning Claude
+    # Desktop without FCC routing. The read-back distinguishes the skip
+    # from an idempotent no-op merge.
+    config_path = tmp_path / "claude_desktop_config.json"
+    config_path.write_text("{not json", encoding="utf-8")
+
+    def fail_popen(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("a skipped merge must never reach the binary")
+
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: "https://x"
+    )
+    monkeypatch.setattr(claude_desktop, "_config_path", lambda: config_path)
+    monkeypatch.setattr(claude_desktop, "find_binary", lambda: "/usr/bin/claude")
+    monkeypatch.setattr(claude_desktop.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(RuntimeError, match="routing block could not be written"):
+        claude_desktop.ensure_configured_and_launch(settings=fake_settings)
+
+    # The malformed file is left untouched.
+    assert config_path.read_text(encoding="utf-8") == "{not json"
 
 
 def test_ensure_configured_and_launch_refuses_without_https_front(
