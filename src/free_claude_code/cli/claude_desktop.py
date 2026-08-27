@@ -29,6 +29,7 @@ from loguru import logger
 
 from free_claude_code.cli.tls_proxy import (
     desktop_gateway_base_url,
+    ensure_https_front,
     verified_https_gateway_url,
 )
 from free_claude_code.config.loader import get_settings
@@ -391,8 +392,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"{'Removed FCC block' if changed else 'Nothing to remove'}: {target}")
         return
 
-    changed = configure_claude_desktop_config(args.config_path)
-    print(f"{'Updated' if changed else 'Already merged'}: {target}")
+    # --configure persists the gateway credential, so it gets the same
+    # verified-HTTPS gate as the launch path: without a verified front the
+    # URL would fall back to plain HTTP and persist the reusable proxy
+    # token against a cleartext endpoint. Refuse without writing instead.
+    settings = get_settings()
+    tls_front = ensure_https_front(settings)
+    if tls_front is None:
+        print(
+            "Refusing to configure Claude Desktop: no verified FCC HTTPS "
+            "front is available. Enable the caddy TLS proxy (or start the "
+            "FCC desktop host, which manages it) and retry.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    try:
+        gateway_url = verified_https_gateway_url(settings)
+        if gateway_url is None:
+            print(
+                "Refusing to configure Claude Desktop: the FCC HTTPS front "
+                "stopped verifying before the routing block could be "
+                "written. Retry once the front is healthy.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        changed = configure_claude_desktop_config(
+            args.config_path, settings=settings, gateway_base_url=gateway_url
+        )
+        print(f"{'Updated' if changed else 'Already merged'}: {target}")
+    finally:
+        tls_front.stop()
 
 
 if __name__ == "__main__":

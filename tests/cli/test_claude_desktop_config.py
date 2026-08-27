@@ -255,12 +255,24 @@ def test_config_path_resolver_returns_default_paths(
         assert path.is_absolute()
 
 
+class _FakeFront:
+    """Stand-in for the managed TLS proxy ``main`` brings up."""
+
+    def __init__(self) -> None:
+        self.stop_count = 0
+
+    def stop(self) -> None:
+        self.stop_count += 1
+
+
 def test_main_configure_writes_block_without_subprocess(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     fake_settings: Settings,
 ) -> None:
     fake = tmp_path / "claude_desktop_config.json"
+    front = _FakeFront()
+    verified_url = "https://localhost:8443/claude-desktop"
 
     def fail_popen(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("configure must not spawn a subprocess")
@@ -269,11 +281,44 @@ def test_main_configure_writes_block_without_subprocess(
     monkeypatch.setattr(
         claude_desktop, "get_settings", lambda: fake_settings, raising=False
     )
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: front)
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: verified_url
+    )
 
     claude_desktop.main(["--configure", "--config-path", str(fake)])
 
     data = json.loads(fake.read_text(encoding="utf-8"))
     assert data["modelDiscoveryEnabled"] is True
+    # The persisted block must point at the verified HTTPS front, and the
+    # front brought up for the write is stopped on the way out.
+    assert data["inference"]["inferenceGatewayBaseUrl"] == verified_url
+    assert front.stop_count == 1
+
+
+def test_main_configure_refuses_without_https_front(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The routing block embeds the reusable proxy token, so persisting it
+    # against the plain-HTTP fallback would hand the credential to whatever
+    # occupies that endpoint. Refuse without writing instead.
+    fake = tmp_path / "claude_desktop_config.json"
+
+    monkeypatch.setattr(
+        claude_desktop, "get_settings", lambda: fake_settings, raising=False
+    )
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: None)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.main(["--configure", "--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    assert not fake.exists()
+    captured = capsys.readouterr()
+    assert "no verified FCC HTTPS front" in captured.err
 
 
 def test_launch_binary_spawns_without_certificate_bypass(

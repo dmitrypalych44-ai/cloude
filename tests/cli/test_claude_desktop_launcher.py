@@ -302,6 +302,7 @@ def test_launch_exits_127_when_binary_missing(
 def test_launch_configure_does_not_invoke_subprocess(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    verified_front: FakeFront,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake = tmp_path / "claude_desktop_config.json"
@@ -321,6 +322,58 @@ def test_launch_configure_does_not_invoke_subprocess(
 
     data = json.loads(fake.read_text(encoding="utf-8"))
     assert data["modelDiscoveryEnabled"] is True
+    # The persisted block must point at the verified HTTPS front, and the
+    # front brought up for the write is stopped on the way out.
+    assert data["inference"]["inferenceGatewayBaseUrl"] == _DETERMINISTIC_URL
+    assert verified_front.stop_count == 1
+
+
+def test_launch_configure_refuses_without_https_front(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Regression guard for the Greptile "--configure bypasses the gate"
+    # finding: the routing block embeds the reusable proxy token, so
+    # persisting it against the plain-HTTP fallback would hand the
+    # credential to whatever occupies that endpoint. Refuse, untouched.
+    fake = tmp_path / "claude_desktop_config.json"
+
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: None)
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--configure", "--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    assert not fake.exists()
+    captured = capsys.readouterr()
+    assert "no verified FCC HTTPS front" in captured.err
+
+
+def test_launch_configure_refuses_when_front_stops_verifying(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The front can stop verifying between bring-up and the config write;
+    # --configure must re-check and refuse rather than persist the HTTP
+    # fallback, and must still stop the front it brought up.
+    fake = tmp_path / "claude_desktop_config.json"
+    front = FakeFront()
+
+    monkeypatch.setattr(claude_desktop, "ensure_https_front", lambda settings: front)
+    monkeypatch.setattr(
+        claude_desktop, "verified_https_gateway_url", lambda settings: None
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        claude_desktop.launch(["--configure", "--config-path", str(fake)])
+
+    assert exc.value.code == 1
+    assert not fake.exists()
+    assert front.stop_count == 1
+    captured = capsys.readouterr()
+    assert "stopped verifying" in captured.err
 
 
 def test_launch_refuses_malformed_config(
