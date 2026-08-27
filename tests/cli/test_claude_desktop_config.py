@@ -208,6 +208,46 @@ def test_unconfigure_drops_only_fcc_keys(
     assert data["preferences"] == {"theme": "dark"}
 
 
+def test_unconfigure_removes_block_when_gateway_url_no_longer_matches(
+    fake_config: Path,
+    fake_settings: Settings,
+) -> None:
+    # Regression guard for the Greptile "unconfigure leaves the gateway
+    # behind" finding: a previous configure persisted the HTTPS gateway
+    # URL, but the front is now gone and URL resolution falls back to
+    # plain HTTP. Removal must not depend on the recorded values matching
+    # current resolution, or the gateway URL and auth token stay behind.
+    fake_config.write_text(
+        json.dumps(
+            {
+                "preferences": {"theme": "dark"},
+                "modelDiscoveryEnabled": True,
+                "inference": {
+                    "provider": "gateway",
+                    "credentialKind": "static",
+                    "inferenceProvider": "gateway",
+                    "inferenceCredentialKind": "static",
+                    "inferenceGatewayBaseUrl": "https://localhost:8443/claude-desktop",
+                    "inferenceGatewayAuthScheme": "x-api-key",
+                    "inferenceAnthropicApiKey": "tok-123",
+                    "extra_user_key": "stay",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    changed = claude_desktop.unconfigure_claude_desktop_config(
+        fake_config, settings=fake_settings
+    )
+
+    assert changed is True
+    data = json.loads(fake_config.read_text(encoding="utf-8"))
+    assert "modelDiscoveryEnabled" not in data
+    assert data["inference"] == {"extra_user_key": "stay"}
+    assert data["preferences"] == {"theme": "dark"}
+
+
 def test_unconfigure_roundtrip_is_clean_noop(
     fake_config: Path,
     fake_settings: Settings,

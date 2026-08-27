@@ -211,9 +211,13 @@ def unconfigure_claude_desktop_config(
 ) -> bool:
     """Reverse the merge. Preserves every key outside the FCC-managed surface.
 
-    ``gateway_base_url`` must match the value a previous ``configure`` wrote.
-    Returns ``False`` without writing when the existing config is malformed,
-    or silently when the file does not exist.
+    Managed keys are removed regardless of their recorded values: the
+    gateway URL a previous ``configure`` wrote may no longer match current
+    resolution (most notably when the HTTPS front is gone and resolution
+    falls back to plain HTTP), and a value-gated removal would then leave
+    the persisted gateway URL and auth token behind. Returns ``False``
+    without writing when the existing config is malformed, or silently when
+    the file does not exist.
     """
 
     resolved_settings = settings or get_settings()
@@ -243,8 +247,8 @@ def unconfigure_claude_desktop_config(
             inference_dict: dict[str, object] = {}
             for key, value in inference.items():
                 inference_dict[str(key)] = value
-            for key, value in managed.items():
-                if key in inference_dict and inference_dict[key] == value:
+            for key in managed:
+                if key in inference_dict:
                     del inference_dict[key]
                     changed = True
             if inference_dict:
