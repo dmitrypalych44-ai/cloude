@@ -823,5 +823,38 @@
     "status": "Та же модель/цвет, ДРУГАЯ фасовка",
     "reason": "Стойка-основание Litolevel, но 250 шт вместо 50 шт. Проверить толщину шва и совместимость; сравнивать цену за стойку, не за упаковку.",
     "source": "https://www.redmamont.ru/catalog/?SECTION_ID=981"
+  },
+  {
+    "art": "17358455",
+    "shop": "Дом Ремонта (FarPost, Владивосток)",
+    "name": "Гидроизоляция цементная Ceresit CR65 5 кг",
+    "url": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-cementnaja-5.0-kg-cerezit-cr-65-g18323630451.html",
+    "price": 576,
+    "unit": "руб/5 кг",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "В карточке CR65 5 кг, в наличии, Демьяна Бедного 17а. Указана новая формула с индикатором; рецептуру исходника сверить. EAN не сверён.",
+    "source": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-cementnaja-5.0-kg-cerezit-cr-65-g18323630451.html"
+  },
+  {
+    "art": "17358455",
+    "shop": "Палитра (FarPost, Владивосток)",
+    "name": "Гидроизоляция цементная Ceresit CR65 5 кг",
+    "url": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-dlja-betona-quot-cerezit-quot-cr-65-5kg-p16962-rossija-g18589876837.html",
+    "price": 596,
+    "unit": "руб/5 кг",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "В заголовке карточки CR65 5 кг. Цена за штуку; Бородинская 46/50 стр.2. Наличие подтверждается после заказа. EAN не сверён.",
+    "source": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-dlja-betona-quot-cerezit-quot-cr-65-5kg-p16962-rossija-g18589876837.html"
+  },
+  {
+    "art": "17358455",
+    "shop": "СТАФФ-МАРКЕТ (FarPost, Владивосток)",
+    "name": "Гидроизоляция цементная Ceresit CR65 5 кг",
+    "url": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-cementnaja-barjernaja-ceresit-sr-65-5-kg-g5195797868.html",
+    "price": 650,
+    "unit": "руб/5 кг",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "CR65 5 кг по заголовку. Под заказ, сумма заказа от 6000 руб.; интернет-цена требует упоминания FarPost, окончательную цену и условия оплаты уточнить. EAN не сверён.",
+    "source": "https://www.farpost.ru/vladivostok/home/materials/isolation/gidroizoljacija-cementnaja-barjernaja-ceresit-sr-65-5-kg-g5195797868.html"
   }
 ]

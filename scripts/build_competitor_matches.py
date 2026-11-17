@@ -1,4 +1,7 @@
 import csv,re,sys,collections
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from package_check import verdict,label
 sys.path.insert(0,'.cache/report-libs')
 from openpyxl import load_workbook,Workbook
 from openpyxl.styles import Font,PatternFill,Alignment
@@ -87,17 +90,24 @@ def lp_link(art):
  return 'https://vladivostok.lemanapro.ru/search/?q='+art
 def lp_status(art):
  return 'Владивосток: поиск по артикулу — НЕ карточка; выдача не проверена (HTTP 403 при контрольном запросе)'
+# Partition, do not pass unknown or incompatible packs into the comparison sheet.
+audit={k:verdict(v[1],v[4]) for k,v in M.items()}
+accepted={k:v for k,v in M.items() if audit[k][2]=='Совпадает по описаниям'}
+rejected={k:v for k,v in M.items() if audit[k][2]!='Совпадает по описаниям'}
 wb=Workbook();w=wb.active;w.title='Сводка'
-count=collections.Counter(x[6] for x in M.values()); covered={x[0] for x in M.values()}
-for row in [['Показатель','Значение'],['Исходных позиций',len(src)],['Позиций со связками',len(covered)],['Всего связок',len(M)],['Без отобранных кандидатов в этой базе',len(src)-len(covered)],['Охват','Все 1518 строк проверены алгоритмом против частичной базы. Это НЕ полный поиск по интернету и НЕ доказательство отсутствия аналогов для оставшихся строк.'],['Точные совпадения EAN',0],['Визуальная проверка','Не выполнена. Ни один новый визуальный аналог не подтверждён.'],['Цены','В основном унаследованы из предыдущего сбора 10.11.2026. Новые источники и дата доступа указаны; актуальность и наличие перепроверить. Цен ЛП в исходнике нет.'],['Ограничения','Нет полных выгрузок конкурентов; 40 карточек Santehnica без названий не годятся для сопоставления. Не все размеры и поверхности удалось извлечь.'],['Публикация','Исходные данные поставщиков и штрихкоды в эту книгу не включены.']]:w.append(row)
-w.append(['Ссылки Лемана ПРО','Только https://vladivostok.lemanapro.ru/search/?q=АРТИКУЛ — поиск по исходному артикулу, не карточка товара. Контрольный запрос 12778258 вернул HTTP 403; выдача, наличие и региональные цены не проверены. Карточки других регионов не используются.'])
+count=collections.Counter(x[6] for x in accepted.values()); covered={x[0] for x in accepted.values()}
+for row in [['Показатель','Значение'],['Исходных позиций',len(src)],['Позиций с одинаковой фасовкой',len(covered)],['Связок с одинаковой фасовкой',len(accepted)],['Исключено или требует проверки',len(rejected)],['Проверено связок всего',len(M)],['Метод проверки','Масса/объём/количество в исходном CSV ЛП против описаний карточек конкурентов. Это не повторная проверка сайта ЛП.'],['Источник фасовки ЛП','Предоставленный пользователем CSV. CE33/2 и CE40/2 читаются как 2 кг. CL51/5 без единицы не считается доказательством 5 кг.'],['Строгость','В основной таблице только одинаковые значения и одинаковые единицы (кг, л, шт). Кг не приравниваются к литрам. Для плитки площадь коробки конкурента не установлена — перенесена в проверку.'],['Охват','Все 1518 строк проверены против частичной базы; поиск не завершён. Совпадение фасовки не подтверждает EAN, рецептуру или визуальное сходство.'],['Точные совпадения EAN',0],['Визуальная проверка','Не выполнена'],['Ссылки Лемана ПРО','Только поиск по артикулу во Владивостоке. Сайт возвращал 403; актуальное наличие, цена и описание ЛП не проверены.'],['Цены','За указанную упаковку конкурента. Дата сбора 10.11.2026; цена и наличие требуют перепроверки.']]:w.append(row)
 for k,v in count.items():w.append([k,v])
-w=wb.create_sheet('Соответствия');headers=['Артикул ЛП','Товар ЛП','Бренд ЛП','Конкурент','Товар конкурента','Ссылка конкурента','Ссылка Лемана ПРО','Тип ссылки ЛП','Статус','Основание и отличия','Цена конкурента','Единица','Дата цены или сбора','Проверка фото','Наличие'];w.append(headers)
-for row in sorted(M.values(),key=lambda x:(x[0],x[3],x[4])):w.append(row[:6]+[lp_link(row[0]),lp_status(row[0])]+row[6:])
-w=wb.create_sheet('Все 1518 артикулов');w.append(['Артикул','Наименование','Бренд','Результат проверки в частичной базе','Связок','Ссылка Лемана ПРО','Тип ссылки ЛП','Ссылки конкурентов'])
+headers=['Артикул ЛП','Товар ЛП','Бренд ЛП','Конкурент','Товар конкурента','Ссылка конкурента','Ссылка Лемана ПРО','Тип ссылки ЛП','Статус модели','Основание и отличия','Цена конкурента','Единица цены','Дата сбора','Проверка фото','Наличие','Фасовка ЛП из CSV','Фасовка конкурента','Проверка фасовки']
+for sheet,data in [('Соответствия',accepted),('Исключено и проверить',rejected)]:
+ w=wb.create_sheet(sheet);w.append(headers)
+ for key,row in sorted(data.items(),key=lambda x:(x[1][0],x[1][3],x[1][4])):
+  aa,bb,result=audit[key]
+  w.append(row[:6]+[lp_link(row[0]),lp_status(row[0])]+row[6:]+[label(aa),label(bb),result])
+w=wb.create_sheet('Все 1518 артикулов');w.append(['Артикул','Наименование','Бренд','Результат в частичной базе','Связок с одинаковой фасовкой','Ссылка Лемана ПРО','Тип ссылки ЛП','Ссылки конкурентов с той же фасовкой'])
 for r in src:
- mm=[v for v in M.values() if v[0]==r['Артикул']]
- w.append([r['Артикул'],r['Наименование'],r['Бренд'],'Есть предварительные соответствия' if mm else 'Не отобрано в частичной базе; нужен дальнейший поиск',len(mm),lp_link(r['Артикул']),lp_status(r['Артикул']),'\n'.join(v[5] for v in mm)])
+ mm=[v for v in accepted.values() if v[0]==r['Артикул']]
+ w.append([r['Артикул'],r['Наименование'],r['Бренд'],'Одинаковая фасовка по описаниям' if mm else 'Не подтверждена одинаковая фасовка; нужен поиск',len(mm),lp_link(r['Артикул']),lp_status(r['Артикул']),'\n'.join(v[5] for v in mm)])
 w=wb.create_sheet('Каталог источников');w.append(['Продавец','Наименование','Ссылка','Источник','Статус источника','Цена','Единица','Дата'])
 unique={c[2]:c for c in cat}
 for c in unique.values():w.append(c)
@@ -111,5 +121,5 @@ for ws in wb:
    if str(c.value or '').startswith('https://') and '\n' not in str(c.value) and ' ' not in str(c.value):c.hyperlink=c.value;c.font=Font(color='0563C1',underline='single')
 p='reports/competitor_matches.xlsx';wb.save(p)
 assert load_workbook(p)['Все 1518 артикулов'].max_row==1519
-print('COVERED',len(covered),'LINKS',len(M),'CATEGORIES',dict(count),'CATALOG',len(unique))
+print('ACCEPTED',len(accepted),'REJECTED',len(rejected),'COVERED',len(covered),'LINKS',len(M),'CATEGORIES',dict(count),'CATALOG',len(unique))
 for r in M.values():print(r[0],r[6],r[4])
