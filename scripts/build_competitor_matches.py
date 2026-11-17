@@ -11,8 +11,8 @@ old=load_workbook('competitors.xlsx',data_only=True); cat=[list(r) for r in list
 M={}
 def match(art,c,kind,why):
  M[(art,c[2])]=[art,by[art]['Наименование'],by[art]['Бренд'],c[0],c[1],c[2],kind,why,c[5],c[6],c[7],'Не выполнена','Наличие и цена требуют повторной проверки перед заказом']
-def new(art,shop,n,url,p,u,kind,why,source):
- c=[shop,n,url,source,'Каталог прочитан в текущем поиске',p,u,'2026-11-10'];cat.append(c);match(art,c,kind,why)
+def new(art,shop,n,url,p,u,kind,why,source,checked_at='2026-11-10'):
+ c=[shop,n,url,source,'Каталог прочитан в текущем поиске',p,u,checked_at];cat.append(c);match(art,c,kind,why)
 # Curated matches in existing catalog.
 for c in cat:
  u=c[2]; a=None
@@ -46,7 +46,7 @@ for art,code,id in [('82860205','100','58701'),('82860206','102','58704'),('8286
 # Additional cards independently collected from competitor catalog pages.
 import json
 for item in json.load(open('reports/additional_matches.json', encoding='utf-8')):
- new(item['art'],item['shop'],item['name'],item['url'],item['price'],item['unit'],item['status'],item['reason'],item['source'])
+ new(item['art'],item['shop'],item['name'],item['url'],item['price'],item['unit'],item['status'],item['reason'],item['source'],item.get('checked_at','2026-11-10'))
  if item.get('availability'):M[(item['art'],item['url'])][12]=item['availability']
 # Reject previous wrong shade: dark grey 9015 is not dark smoky 9028.
 for key in list(M):
