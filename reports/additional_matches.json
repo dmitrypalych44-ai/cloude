@@ -790,5 +790,38 @@
     "status": "Та же модель/цвет, ДРУГАЯ фасовка",
     "reason": "CM11 PRO, но у конкурента 25 кг вместо исходных 5 кг. Класс в исходнике C1, в карточке 25 кг проверить технический лист; цену сравнивать за кг.",
     "source": "https://999111.ru/catalog/klei?limit=100"
+  },
+  {
+    "art": "84612978",
+    "shop": "АПЕКС (местный)",
+    "name": "20059 Темари белый матовый Kerama Marazzi 29,8×29,8",
+    "url": "https://apexdv.ru/product/482472-20059-temari-belyj-matovyj-kerama-marazzi-298x298",
+    "price": 5087.97,
+    "unit": "руб/м²",
+    "status": "Совпадение коллекции, цвета и размера; EAN не сверён",
+    "reason": "Совпали коллекция Темари, белый цвет, матовая поверхность, размер 29,8×29,8. У конкурента под заказ. В исходнике учёт за лист, у конкурента цена за м²; напрямую не сравнивать.",
+    "source": "https://apexdv.ru/collections/20775314-temari"
+  },
+  {
+    "art": "85371454",
+    "shop": "Красный Мамонт",
+    "name": "Система выравнивания плитки Litokol Litolevel 50 шт",
+    "url": "https://www.redmamont.ru/catalog/?SECTION_ID=981&ELEMENT_ID=64403",
+    "price": 890,
+    "unit": "руб/упаковка 50 шт",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "Совпали Litolevel, комплект, 50 шт; состав комплекта и EAN сверить.",
+    "source": "https://www.redmamont.ru/catalog/?SECTION_ID=981"
+  },
+  {
+    "art": "82800605",
+    "shop": "Красный Мамонт",
+    "name": "Стойка-основание Litokol Litolevel 250 шт",
+    "url": "https://www.redmamont.ru/catalog/?SECTION_ID=981&ELEMENT_ID=49061",
+    "price": 1300,
+    "unit": "руб/упаковка 250 шт",
+    "status": "Та же модель/цвет, ДРУГАЯ фасовка",
+    "reason": "Стойка-основание Litolevel, но 250 шт вместо 50 шт. Проверить толщину шва и совместимость; сравнивать цену за стойку, не за упаковку.",
+    "source": "https://www.redmamont.ru/catalog/?SECTION_ID=981"
   }
 ]
