@@ -40,6 +40,13 @@ for art,n,slug,p,why in [
 # Same Starlike EVO color code, explicitly different packaging, never an exact SKU.
 for art,code,id in [('82860205','100','58701'),('82860206','102','58704'),('82860200','105','59245'),('82860189','110','58383'),('82860191','115','57970'),('82860190','120','58444')]:
  new(art,'Красный Мамонт','Litokol Starlike EVO S.'+code+' 2,5 кг','https://www.redmamont.ru/catalog/?SECTION_ID=975&ELEMENT_ID='+id,5900,'руб/2,5 кг','Та же линейка и код цвета, ДРУГАЯ фасовка','В исходнике 2 кг, у конкурента 2,5 кг. Код цвета совпадает; рецептуру, перевод цвета и EAN сверить. Для цены за кг разделить цену на 2,5.','https://www.redmamont.ru/catalog/?SECTION_ID=975 — фрагмент 1')
+# Additional cards independently collected from competitor catalog pages.
+import json
+for item in json.load(open('reports/additional_matches.json', encoding='utf-8')):
+ new(item['art'],item['shop'],item['name'],item['url'],item['price'],item['unit'],item['status'],item['reason'],item['source'])
+# Reject previous wrong shade: dark grey 9015 is not dark smoky 9028.
+for key in list(M):
+ if key[0]=='83024081' and '482853-' in key[1]:del M[key]
 # Conservative feature screen over every source row against the collected catalog.
 def norm(t):
  t=unidecode(t.lower()).replace(',','.').replace('kh','x');return t
@@ -75,7 +82,7 @@ for r in src:
   if (r['Артикул'],c[2]) not in M:match(r['Артикул'],c,'Кандидат по характеристикам — НЕ подтверждённый аналог','Совпали формат (допуск 1,5%), группа цвета, рисунок и группа поверхности по тексту. Фото НЕ сравнивались. Толщина, тон, ректификация, R/PEI неизвестны. Полировка и глазурованный глянец объединены только для отбора кандидатов.')
 # Flag weak dark/smoky identification separately.
 for row in M.values():
- if row[0]=='83024081':row[6]='Кандидат той же коллекции — оттенок не подтверждён'
+ if row[0]=='83024081' and '491116-' not in row[5]:row[6]='Кандидат той же коллекции — оттенок не подтверждён'
 wb=Workbook();w=wb.active;w.title='Сводка'
 count=collections.Counter(x[6] for x in M.values()); covered={x[0] for x in M.values()}
 for row in [['Показатель','Значение'],['Исходных позиций',len(src)],['Позиций со связками',len(covered)],['Всего связок',len(M)],['Без отобранных кандидатов в этой базе',len(src)-len(covered)],['Охват','Все 1518 строк проверены алгоритмом против частичной базы. Это НЕ полный поиск по интернету и НЕ доказательство отсутствия аналогов для оставшихся строк.'],['Точные совпадения EAN',0],['Визуальная проверка','Не выполнена. Ни один новый визуальный аналог не подтверждён.'],['Цены','В основном унаследованы из предыдущего сбора 10.11.2026. Новые источники и дата доступа указаны; актуальность и наличие перепроверить. Цен ЛП в исходнике нет.'],['Ограничения','Нет полных выгрузок конкурентов; 40 карточек Santehnica без названий не годятся для сопоставления. Не все размеры и поверхности удалось извлечь.'],['Публикация','Исходные данные поставщиков и штрихкоды в эту книгу не включены.']]:w.append(row)
