@@ -11,6 +11,10 @@ class PackageTests(unittest.TestCase):
     def test_units(self):
         self.assertEqual(package('0,28 л'), package('280 мл'))
         self.assertEqual(package('2КГ'), package('2000 г'))
+        self.assertEqual(label(package('STONE,1кг')), '1 кг')
+        self.assertEqual(label(package('IDROSTUK-М,10кг')), '10 кг')
+        self.assertEqual(label(package('0,5кг')), '0.5 кг')
+        self.assertEqual(label(package('2,5кг')), '2.5 кг')
         self.assertNotEqual(package('0,5 л'), package('0,5 кг'))
         self.assertEqual(label(package('CE33/2 затирка', True)), '2 кг')
         self.assertIsNone(package('CL51/5'))
@@ -25,8 +29,8 @@ class ReportTests(unittest.TestCase):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (135, 57))
-        self.assertEqual(len({r[0] for r in rows}), 128)
+        self.assertEqual((len(rows), len(excluded)), (140, 54))
+        self.assertEqual(len({r[0] for r in rows}), 133)
         self.assertGreater(len({r[0] for r in rows}), 100)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,

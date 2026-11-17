@@ -8,6 +8,9 @@ UNITS = {'кг': ('кг', 1), 'kg': ('кг', 1), 'г': ('кг', '.001'),
 
 def package(text, source=False):
     text = str(text).lower()
+    # A comma after a model word separates the pack (STONE,1кг),
+    # whereas a comma after a digit remains a decimal separator (0,5кг).
+    text = re.sub(r'(?<=[a-zа-я]),(?=\d)', ' ', text)
     found = []
     for m in re.finditer(r'(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(кг|kg|мл|ml|шт|sht|м2|м²|л|l|г)(?![a-zа-я0-9])', text):
         value = Decimal(m[1].replace(',', '.'))

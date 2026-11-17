@@ -1809,5 +1809,27 @@
     "reason": "Совпадают бренд, тип материала, цвет (где указан) и масса. В исходнике IDROSTUK-M, у конкурента IDROSTUK без M: версия требует проверки, не точный SKU.",
     "source": "https://www.farpost.ru/vladivostok/home/materials/dry-mix/?query=Idrostuk",
     "availability": "Под заказ; сроки, цену и поставку подтвердить"
+  },
+  {
+    "art": "89443556",
+    "shop": "СТАФФ-МАРКЕТ",
+    "name": "Очиститель эпоксидной затирки Litokol Litonet Litopower GEL EP 0,5л",
+    "url": "https://www.farpost.ru/vladivostok/home/materials/paints/ochistitel-epoxidnoj-zatirki-litokol-litonet-litopower-gel-ep-0-5l-ot-24-chasov-do-2-mesjacev-g18394735206.html",
+    "price": 1890,
+    "unit": "руб/0,5 л",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "Совпадают назначение, серия LITOPOWER GEL EP / CE и объём 0,5 л. Название и цена прочитаны в местной выдаче; EAN и актуальное наличие сверить.",
+    "source": "https://www.farpost.ru/vladivostok/home/materials/?query=LitoPower"
+  },
+  {
+    "art": "89443557",
+    "shop": "СТАФФ-МАРКЕТ",
+    "name": "Очиститель цементной затирки и клея Litokol Litonet Litopower CE 0,5л",
+    "url": "https://www.farpost.ru/vladivostok/home/materials/paints/ochistitel-cementnoj-zatirki-t-kleja-litokol-litonet-litopower-ce-0-5l-g18556105964.html",
+    "price": 540,
+    "unit": "руб/0,5 л",
+    "status": "Совпадение модели и фасовки, EAN не сверён",
+    "reason": "Совпадают назначение, серия LITOPOWER GEL EP / CE и объём 0,5 л. Название и цена прочитаны в местной выдаче; EAN и актуальное наличие сверить.",
+    "source": "https://www.farpost.ru/vladivostok/home/materials/?query=LitoPower"
   }
 ]
