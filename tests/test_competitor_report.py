@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, parse_qsl
 from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from package_check import package, verdict, label
+from source_policy import is_store_url
 
 class PackageTests(unittest.TestCase):
     def test_units(self):
@@ -24,14 +25,25 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(verdict('2 кг', '2,5 кг')[2], 'Разная фасовка')
         self.assertNotEqual(verdict('50 шт', '250 шт')[2], 'Совпадает по описаниям')
 
+class SourcePolicyTests(unittest.TestCase):
+    def test_only_reviewed_stores(self):
+        self.assertTrue(is_store_url('https://www.redmamont.ru/catalog/'))
+        self.assertTrue(is_store_url('https://reserv-stroy.ru/shop/UNIS/'))
+        for url in ('https://www.farpost.ru/vladivostok/',
+                    'https://market.iprim.ru/item/1',
+                    'https://999111.ru.evil.example/product/',
+                    'https://999111.ru@farpost.ru/item',
+                    'https://vladivostok.propartner.ru/offers/',
+                    'https://www.ozon.ru/product/1'):
+            self.assertFalse(is_store_url(url))
+
 class ReportTests(unittest.TestCase):
     def test_report(self):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (157, 56))
-        self.assertEqual(len({r[0] for r in rows}), 142)
-        self.assertGreater(len({r[0] for r in rows}), 100)
+        self.assertEqual((len(rows), len(excluded)), (81, 55))
+        self.assertEqual(len({r[0] for r in rows}), 76)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,
                        tuple(sorted(parse_qsl(urlsplit(r[5]).query)))) for r in rows + excluded]
@@ -41,9 +53,21 @@ class ReportTests(unittest.TestCase):
             self.assertNotEqual(r[15], 'Не установлено')
             self.assertEqual(r[17], 'Совпадает по описаниям')
             self.assertNotIn('ДРУГАЯ фасовка', r[8])
-        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 42)
+        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 40)
         self.assertTrue(any(r[0] == '83024081' and '491116-' in r[5] for r in excluded))
-        self.assertTrue(any(r[0] == '17358455' and 'farpost.ru' in r[5] for r in rows))
+        self.assertTrue(any(r[0] == '12026910' and 'reserv-stroy.ru' in r[5] for r in rows))
+        for r in rows + excluded:
+            self.assertTrue(is_store_url(r[5]))
+        for r in list(w['Каталог источников'].values)[1:]:
+            self.assertTrue(is_store_url(r[2]))
+        for sheet in w:
+            for row in sheet.values:
+                for value in row:
+                    self.assertNotIn('farpost.ru', str(value).lower())
+                    self.assertNotIn('market.iprim.ru', str(value).lower())
+        pending = list(w['Замена источников'].values)[1:]
+        self.assertEqual(len(pending), 71)
+        self.assertEqual(sum(not r[4] for r in pending), 67)
         for r in rows + excluded:
             self.assertEqual(r[6], 'https://vladivostok.lemanapro.ru/search/?q=' + r[0])
         for sheet in ('Соответствия', 'Исключено и проверить'):

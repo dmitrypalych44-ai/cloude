@@ -2,16 +2,18 @@ import csv,re,sys,collections
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from package_check import verdict,label
+from source_policy import is_store_url
 sys.path.insert(0,'.cache/report-libs')
 from openpyxl import load_workbook,Workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from unidecode import unidecode
 src=list(csv.DictReader(open(sys.argv[1] if len(sys.argv)>1 else '/tmp/arena-coding-uploads/data (1).csv',encoding='utf-8-sig'),delimiter=';')); by={r['Артикул']:r for r in src}
-old=load_workbook('competitors.xlsx',data_only=True); cat=[list(r) for r in list(old['Все ссылки'].values)[1:]]
+old=load_workbook('competitors.xlsx',data_only=True); cat=[list(r) for r in list(old['Все ссылки'].values)[1:] if is_store_url(r[2])]
 M={}
 def match(art,c,kind,why):
  M[(art,c[2])]=[art,by[art]['Наименование'],by[art]['Бренд'],c[0],c[1],c[2],kind,why,c[5],c[6],c[7],'Не выполнена','Наличие и цена требуют повторной проверки перед заказом']
 def new(art,shop,n,url,p,u,kind,why,source,checked_at='2026-11-10'):
+ if not is_store_url(url):return
  c=[shop,n,url,source,'Каталог прочитан в текущем поиске',p,u,checked_at];cat.append(c);match(art,c,kind,why)
 # Curated matches in existing catalog.
 for c in cat:
@@ -47,6 +49,7 @@ for art,code,id in [('82860205','100','58701'),('82860206','102','58704'),('8286
 import json
 for item in json.load(open('reports/additional_matches.json', encoding='utf-8')):
  new(item['art'],item['shop'],item['name'],item['url'],item['price'],item['unit'],item['status'],item['reason'],item['source'],item.get('checked_at','2026-11-10'))
+ if not is_store_url(item['url']):continue
  if item.get('availability'):M[(item['art'],item['url'])][12]=item['availability']
 # Reject previous wrong shade: dark grey 9015 is not dark smoky 9028.
 for key in list(M):
@@ -97,7 +100,7 @@ accepted={k:v for k,v in M.items() if audit[k][2]=='Совпадает по оп
 rejected={k:v for k,v in M.items() if audit[k][2]!='Совпадает по описаниям'}
 wb=Workbook();w=wb.active;w.title='Сводка'
 count=collections.Counter(x[6] for x in accepted.values()); covered={x[0] for x in accepted.values()}
-for row in [['Показатель','Значение'],['Исходных позиций',len(src)],['Позиций с одинаковой фасовкой',len(covered)],['Связок с одинаковой фасовкой',len(accepted)],['Исключено или требует проверки',len(rejected)],['Проверено связок всего',len(M)],['Метод проверки','Масса/объём/количество в исходном CSV ЛП против описаний карточек конкурентов. Это не повторная проверка сайта ЛП.'],['Источник фасовки ЛП','Предоставленный пользователем CSV. CE33/2 и CE40/2 читаются как 2 кг. CL51/5 без единицы не считается доказательством 5 кг.'],['Строгость','В основной таблице только одинаковые значения и одинаковые единицы (кг, л, шт). Кг не приравниваются к литрам. Для плитки площадь коробки конкурента не установлена — перенесена в проверку.'],['Охват','Все 1518 строк проверены против частичной базы; поиск не завершён. Совпадение фасовки не подтверждает EAN, рецептуру или визуальное сходство.'],['Точные совпадения EAN',0],['Визуальная проверка','Не выполнена'],['Ссылки Лемана ПРО','Только поиск по артикулу во Владивостоке. Сайт возвращал 403; актуальное наличие, цена и описание ЛП не проверены.'],['Цены','За указанную упаковку конкурента. Дата сбора 10.11.2026; цена и наличие требуют перепроверки.']]:w.append(row)
+for row in [['Показатель','Значение'],['Исходных позиций',len(src)],['Позиций с одинаковой фасовкой',len(covered)],['Связок с одинаковой фасовкой',len(accepted)],['Исключено или требует проверки',len(rejected)],['Проверено связок всего',len(M)],['Метод проверки','Масса/объём/количество в исходном CSV ЛП против описаний карточек конкурентов. Это не повторная проверка сайта ЛП.'],['Источник фасовки ЛП','Предоставленный пользователем CSV. CE33/2 и CE40/2 читаются как 2 кг. CL51/5 без единицы не считается доказательством 5 кг.'],['Строгость','В основной таблице только одинаковые значения и одинаковые единицы (кг, л, шт). Кг не приравниваются к литрам. Для плитки площадь коробки конкурента не установлена — перенесена в проверку.'],['Охват','Все 1518 строк проверены против частичной базы; поиск не завершён. Совпадение фасовки не подтверждает EAN, рецептуру или визуальное сходство.'],['Источники','Только собственные сайты проверенных магазинов. Доски объявлений и агрегаторы исключены, в том числе все публикации магазинов на таких площадках.'],['Точные совпадения EAN',0],['Визуальная проверка','Не выполнена'],['Ссылки Лемана ПРО','Только поиск по артикулу во Владивостоке. Сайт возвращал 403; актуальное наличие, цена и описание ЛП не проверены.'],['Цены','За указанную упаковку конкурента. Дата сбора 10.11.2026; цена и наличие требуют перепроверки.']]:w.append(row)
 for k,v in count.items():w.append([k,v])
 headers=['Артикул ЛП','Товар ЛП','Бренд ЛП','Конкурент','Товар конкурента','Ссылка конкурента','Ссылка Лемана ПРО','Тип ссылки ЛП','Статус модели','Основание и отличия','Цена конкурента','Единица цены','Дата сбора','Проверка фото','Наличие','Фасовка ЛП из CSV','Фасовка конкурента','Проверка фасовки']
 for sheet,data in [('Соответствия',accepted),('Исключено и проверить',rejected)]:
@@ -109,6 +112,11 @@ w=wb.create_sheet('Все 1518 артикулов');w.append(['Артикул','
 for r in src:
  mm=[v for v in accepted.values() if v[0]==r['Артикул']]
  w.append([r['Артикул'],r['Наименование'],r['Бренд'],'Одинаковая фасовка по описаниям' if mm else 'Не подтверждена одинаковая фасовка; нужен поиск',len(mm),lp_link(r['Артикул']),lp_status(r['Артикул']),'\n'.join(v[5] for v in mm)])
+replacement=json.load(open('reports/store_replacement_audit.json',encoding='utf-8'))
+w=wb.create_sheet('Замена источников');w.append(['Артикул','Товар ЛП','Результат замены','Ссылка поиска ЛП','Ссылки магазинов с той же фасовкой'])
+for r in replacement['affected_articles']:
+ mm=[v for v in accepted.values() if v[0]==r['art']]
+ w.append([r['art'],r['name'],'Есть собственный сайт магазина' if mm else 'Подтверждённой замены нет — нужен поиск',lp_link(r['art']),'\n'.join(v[5] for v in mm)])
 w=wb.create_sheet('Каталог источников');w.append(['Продавец','Наименование','Ссылка','Источник','Статус источника','Цена','Единица','Дата'])
 unique={c[2]:c for c in cat}
 for c in unique.values():w.append(c)
