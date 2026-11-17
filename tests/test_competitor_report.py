@@ -25,8 +25,8 @@ class ReportTests(unittest.TestCase):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (108, 55))
-        self.assertEqual(len({r[0] for r in rows}), 101)
+        self.assertEqual((len(rows), len(excluded)), (135, 57))
+        self.assertEqual(len({r[0] for r in rows}), 128)
         self.assertGreater(len({r[0] for r in rows}), 100)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,
