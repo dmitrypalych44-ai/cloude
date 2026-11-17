@@ -47,6 +47,7 @@ for art,code,id in [('82860205','100','58701'),('82860206','102','58704'),('8286
 import json
 for item in json.load(open('reports/additional_matches.json', encoding='utf-8')):
  new(item['art'],item['shop'],item['name'],item['url'],item['price'],item['unit'],item['status'],item['reason'],item['source'])
+ if item.get('availability'):M[(item['art'],item['url'])][12]=item['availability']
 # Reject previous wrong shade: dark grey 9015 is not dark smoky 9028.
 for key in list(M):
  if key[0]=='83024081' and '482853-' in key[1]:del M[key]
