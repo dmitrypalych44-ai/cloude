@@ -23,11 +23,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(w['Соответствия']['G1'].value, 'Ссылка Лемана ПРО')
         self.assertTrue(all('lemanapro.ru/' in r[6] and r[7] for r in rows))
         for r in rows:
-            if '/product/' in r[6]:
-                self.assertTrue(r[6].endswith('-' + r[0] + '/'))
-            else:
-                self.assertTrue(r[6].endswith('/search/?q=' + r[0]))
-                self.assertIn('НЕ карточка', r[7])
+            self.assertEqual(r[6], 'https://vladivostok.lemanapro.ru/search/?q=' + r[0])
+            self.assertIn('НЕ карточка', r[7])
+        for r in list(w['Все 1518 артикулов'].values)[1:]:
+            self.assertEqual(r[5], 'https://vladivostok.lemanapro.ru/search/?q=' + r[0])
         for row in w['Соответствия'].iter_rows(min_row=2):
             self.assertEqual(row[5].hyperlink.target, row[5].value)
             self.assertEqual(row[6].hyperlink.target, row[6].value)
