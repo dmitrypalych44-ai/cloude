@@ -38,13 +38,28 @@ class SourcePolicyTests(unittest.TestCase):
                     'https://www.ozon.ru/product/1'):
             self.assertFalse(is_store_url(url))
 
+class TileEvidenceTests(unittest.TestCase):
+    def test_explicit_box_fields(self):
+        import json
+        from decimal import Decimal
+        records = json.loads(Path('reports/additional_matches.json').read_text())
+        evidence = [r for r in records if r.get('pack_evidence')]
+        self.assertEqual(len(evidence), 3)
+        for r in evidence:
+            e = r['pack_evidence']
+            area = Decimal(str(e['pieces_per_box'])) * Decimal(e['area_per_piece_m2'])
+            self.assertEqual(area, Decimal(e['box_area_m2']))
+            self.assertEqual(package(r['name'])[0], area)
+        mismatch = next(r for r in evidence if r['art'] == '86360072')
+        self.assertNotEqual(Decimal(mismatch['pack_evidence']['box_area_m2']), Decimal('1.07'))
+
 class ReportTests(unittest.TestCase):
     def test_report(self):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (104, 55))
-        self.assertEqual(len({r[0] for r in rows}), 78)
+        self.assertEqual((len(rows), len(excluded)), (106, 53))
+        self.assertEqual(len({r[0] for r in rows}), 80)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,
                        tuple(sorted(parse_qsl(urlsplit(r[5]).query)))) for r in rows + excluded]
@@ -54,7 +69,7 @@ class ReportTests(unittest.TestCase):
             self.assertNotEqual(r[15], 'Не установлено')
             self.assertEqual(r[17], 'Совпадает по описаниям')
             self.assertNotIn('ДРУГАЯ фасовка', r[8])
-        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 40)
+        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 41)
         self.assertTrue(any(r[0] == '83024081' and '491116-' in r[5] for r in excluded))
         self.assertTrue(any(r[0] == '12026910' and 'reserv-stroy.ru' in r[5] for r in rows))
         self.assertTrue(any(r[0] == '81988852' and 'Нет в наличии' in r[14] for r in rows))
