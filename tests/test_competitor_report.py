@@ -29,6 +29,7 @@ class SourcePolicyTests(unittest.TestCase):
     def test_only_reviewed_stores(self):
         self.assertTrue(is_store_url('https://www.redmamont.ru/catalog/'))
         self.assertTrue(is_store_url('https://reserv-stroy.ru/shop/UNIS/'))
+        self.assertTrue(is_store_url('https://dunavl.ru/catalog'))
         for url in ('https://www.farpost.ru/vladivostok/',
                     'https://market.iprim.ru/item/1',
                     'https://999111.ru.evil.example/product/',
@@ -42,8 +43,8 @@ class ReportTests(unittest.TestCase):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (81, 55))
-        self.assertEqual(len({r[0] for r in rows}), 76)
+        self.assertEqual((len(rows), len(excluded)), (92, 55))
+        self.assertEqual(len({r[0] for r in rows}), 78)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,
                        tuple(sorted(parse_qsl(urlsplit(r[5]).query)))) for r in rows + excluded]
@@ -56,6 +57,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 40)
         self.assertTrue(any(r[0] == '83024081' and '491116-' in r[5] for r in excluded))
         self.assertTrue(any(r[0] == '12026910' and 'reserv-stroy.ru' in r[5] for r in rows))
+        self.assertTrue(any(r[0] == '81988852' and 'Нет в наличии' in r[14] for r in rows))
+        self.assertTrue(any(r[0] == '81988850' and r[15] == '0.13 кг' for r in rows))
         for r in rows + excluded:
             self.assertTrue(is_store_url(r[5]))
         for r in list(w['Каталог источников'].values)[1:]:
