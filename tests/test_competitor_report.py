@@ -44,7 +44,7 @@ class TileEvidenceTests(unittest.TestCase):
         from decimal import Decimal
         records = json.loads(Path('reports/additional_matches.json').read_text())
         evidence = [r for r in records if r.get('pack_evidence')]
-        self.assertEqual(len(evidence), 3)
+        self.assertEqual(len(evidence), 7)
         for r in evidence:
             e = r['pack_evidence']
             area = Decimal(str(e['pieces_per_box'])) * Decimal(e['area_per_piece_m2'])
@@ -58,8 +58,8 @@ class ReportTests(unittest.TestCase):
         w = load_workbook('reports/competitor_matches.xlsx', data_only=True)
         rows = list(w['Соответствия'].values)[1:]
         excluded = list(w['Исключено и проверить'].values)[1:]
-        self.assertEqual((len(rows), len(excluded)), (106, 53))
-        self.assertEqual(len({r[0] for r in rows}), 80)
+        self.assertEqual((len(rows), len(excluded)), (108, 51))
+        self.assertEqual(len({r[0] for r in rows}), 82)
         self.assertEqual(w['Все 1518 артикулов'].max_row, 1519)
         normalized = [(r[0], urlsplit(r[5]).netloc, urlsplit(r[5]).path,
                        tuple(sorted(parse_qsl(urlsplit(r[5]).query)))) for r in rows + excluded]
@@ -69,7 +69,7 @@ class ReportTests(unittest.TestCase):
             self.assertNotEqual(r[15], 'Не установлено')
             self.assertEqual(r[17], 'Совпадает по описаниям')
             self.assertNotIn('ДРУГАЯ фасовка', r[8])
-        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 41)
+        self.assertEqual(sum(r[17] == 'Разная фасовка' for r in excluded), 43)
         self.assertTrue(any(r[0] == '83024081' and '491116-' in r[5] for r in excluded))
         self.assertTrue(any(r[0] == '12026910' and 'reserv-stroy.ru' in r[5] for r in rows))
         self.assertTrue(any(r[0] == '81988852' and 'Нет в наличии' in r[14] for r in rows))

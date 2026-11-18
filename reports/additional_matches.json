@@ -1503,5 +1503,77 @@
       "area_per_piece_m2": "0.02432",
       "box_area_m2": "0.9728"
     }
+  },
+  {
+    "art": "86360067",
+    "shop": "АПЕКС (местный)",
+    "name": "9012 Аккорд зелёный грань глянцевый Kerama Marazzi 8,5×28,5; коробка 0,97 м²",
+    "url": "https://apexdv.ru/product/482847-9012-akkord-zelenyj-gran-glyanczevyj-kerama-marazzi-85x285",
+    "price": null,
+    "unit": "Цена не подтверждена",
+    "status": "Коллекция, цвет и размер по описанию; упаковка проверена по полям карточки",
+    "reason": "Прямая карточка: «Шт. в коробке» 40 и «В 1 шт, м2» 0.02425; 40 × 0.02425 = 0.97 м². Расчёт по явным полям, не по геометрии. EAN/тон/партия не сверены; фото не сравнивались.",
+    "source": "https://apexdv.ru/product/482847-9012-akkord-zelenyj-gran-glyanczevyj-kerama-marazzi-85x285",
+    "availability": "Остаток и цена основной карточки не подтверждены; уточнить продажу целой коробки",
+    "checked_at": "2026-11-10",
+    "pack_evidence": {
+      "pieces_per_box": 40,
+      "area_per_piece_m2": "0.02425",
+      "box_area_m2": "0.97"
+    }
+  },
+  {
+    "art": "83024208",
+    "shop": "АПЕКС (местный)",
+    "name": "9025 Аккорд розовый светлый грань глянцевый Kerama Marazzi 8,5×28,5; коробка 0,97 м²",
+    "url": "https://apexdv.ru/product/491109-9025-akkord-rozovyj-svetlyj-gran-glyanczevyj-kerama-marazzi-85x285",
+    "price": null,
+    "unit": "Цена не подтверждена",
+    "status": "Коллекция, цвет и размер по описанию; упаковка проверена по полям карточки",
+    "reason": "Прямая карточка: «Шт. в коробке» 40 и «В 1 шт, м2» 0.02425; 40 × 0.02425 = 0.97 м². Расчёт по явным полям, не по геометрии. EAN/тон/партия не сверены; фото не сравнивались.",
+    "source": "https://apexdv.ru/product/491109-9025-akkord-rozovyj-svetlyj-gran-glyanczevyj-kerama-marazzi-85x285",
+    "availability": "Остаток и цена основной карточки не подтверждены; уточнить продажу целой коробки",
+    "checked_at": "2026-11-10",
+    "pack_evidence": {
+      "pieces_per_box": 40,
+      "area_per_piece_m2": "0.02425",
+      "box_area_m2": "0.97"
+    }
+  },
+  {
+    "art": "86360070",
+    "shop": "АПЕКС (местный)",
+    "name": "9018 Монпарнас беж глянцевый Kerama Marazzi 8,5×28,5; коробка 0,9728 м²",
+    "url": "https://apexdv.ru/product/492261-9018-monparnas-bezh-glyanczevyj-kerama-marazzi-85x285",
+    "price": null,
+    "unit": "Цена не подтверждена",
+    "status": "Коллекция, цвет и размер по описанию; упаковка проверена по полям карточки",
+    "reason": "Прямая карточка: «Шт. в коробке» 40 и «В 1 шт, м2» 0.02432; 40 × 0.02432 = 0.9728 м². Расчёт по явным полям, не по геометрии. EAN/тон/партия не сверены; фото не сравнивались. В CSV 1,07 м² — другая фасовка.",
+    "source": "https://apexdv.ru/product/492261-9018-monparnas-bezh-glyanczevyj-kerama-marazzi-85x285",
+    "availability": "Остаток и цена основной карточки не подтверждены; уточнить продажу целой коробки",
+    "checked_at": "2026-11-10",
+    "pack_evidence": {
+      "pieces_per_box": 40,
+      "area_per_piece_m2": "0.02432",
+      "box_area_m2": "0.9728"
+    }
+  },
+  {
+    "art": "86360071",
+    "shop": "АПЕКС (местный)",
+    "name": "9020 Монпарнас сиреневый глянцевый Kerama Marazzi 8,5×28,5; коробка 0,9728 м²",
+    "url": "https://apexdv.ru/product/492265-9020-monparnas-sirenevyj-glyanczevyj-kerama-marazzi-85x285",
+    "price": null,
+    "unit": "Цена не подтверждена",
+    "status": "Коллекция, цвет и размер по описанию; упаковка проверена по полям карточки",
+    "reason": "Прямая карточка: «Шт. в коробке» 40 и «В 1 шт, м2» 0.02432; 40 × 0.02432 = 0.9728 м². Расчёт по явным полям, не по геометрии. EAN/тон/партия не сверены; фото не сравнивались. В CSV 1,07 м² — другая фасовка.",
+    "source": "https://apexdv.ru/product/492265-9020-monparnas-sirenevyj-glyanczevyj-kerama-marazzi-85x285",
+    "availability": "Остаток и цена основной карточки не подтверждены; уточнить продажу целой коробки",
+    "checked_at": "2026-11-10",
+    "pack_evidence": {
+      "pieces_per_box": 40,
+      "area_per_piece_m2": "0.02432",
+      "box_area_m2": "0.9728"
+    }
   }
 ]
