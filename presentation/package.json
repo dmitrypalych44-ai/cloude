@@ -1,0 +1,15 @@
+{
+  "name": "strategiya-vladivostok-2027",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Пересборка презентации «Стратегия Владивосток 2027» — читаемая вёрстка в двух визуальных стилях",
+  "scripts": {
+    "build": "node build.js all",
+    "build:classic": "node build.js classic",
+    "build:3d": "node build.js 3d",
+    "png": "node build.js all --png"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.3.0"
+  }
+}

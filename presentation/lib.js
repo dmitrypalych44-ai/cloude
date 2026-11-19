@@ -1,0 +1,369 @@
+'use strict';
+// Рендер-библиотека: 960x540, векторный текст, две темы (classic / 3d)
+const fs = require('fs');
+const path = require('path');
+const { createCanvas, PDFDocument, GlobalFonts, Image } = require('@napi-rs/canvas');
+
+const W = 960, H = 540;
+const ML = 56, MR = 56, CW = W - ML - MR;
+
+const warnings = [];
+let _maxBottom = 0;
+function resetBottom() { _maxBottom = 0; }
+function trackB(y) { if (y > _maxBottom) _maxBottom = y; }
+function warn(page, msg) { warnings.push(`${page}: ${msg}`); }
+
+// ---------- шрифты ----------
+const FONT_DIR = path.join(__dirname, 'assets', 'fonts');
+let fontsReady = false;
+function registerFonts() {
+  if (fontsReady) return;
+  for (const w of [300, 400, 500, 600, 700, 800]) {
+    GlobalFonts.registerFromPath(path.join(FONT_DIR, `Onest-${w}.ttf`), `Onest-${w}`);
+  }
+  for (const w of [600, 800]) {
+    GlobalFonts.registerFromPath(path.join(FONT_DIR, `Unbounded-${w}.ttf`), `Unbounded-${w}`);
+  }
+  fontsReady = true;
+}
+function tf(size, weight = 400, fam = 'o') {
+  return `${weight} ${size}px ${fam === 'u' ? 'Unbounded' : 'Onest'}-${weight}`;
+}
+
+// ---------- палитра ----------
+const C = {
+  ink: '#232323', ink2: '#33352F', inkSoft: '#4C4F48', muted: '#7A7566', faint: '#A29B8C',
+  paper: '#F4F1EC', paper2: '#E7E2D8', white: '#FFFFFF', line: '#DBD4C7', line2: '#C9C1B1',
+  yellow: '#FFC61E', yellowDeep: '#E8A800', yellowSoft: '#FFF4D4', yellowMid: '#FFE9A8',
+  dark: '#26282B', dark2: '#33363A',
+  red: '#B4462F', green: '#3E7A52',
+};
+
+// ---------- темы ----------
+const THEMES = {
+  classic: {
+    key: 'classic', dark: false,
+    bg: C.paper, ink: C.ink, inkSoft: C.inkSoft, muted: C.muted, faint: C.faint,
+    accent: C.yellow, accentDeep: C.yellowDeep, accentSoft: C.yellowSoft,
+    card: C.white, cardEdge: C.line, cardAlt: '#FBF8F3',
+    titleFam: 'o', titleW: 800, titleSize: 34,
+    kicker: C.muted, lead: C.inkSoft, foot: '#9A9488', rule: C.line,
+    shadow: { color: 'rgba(46,38,22,0.13)', blur: 16, y: 6 },
+    shadowSoft: { color: 'rgba(46,38,22,0.08)', blur: 10, y: 3 },
+    radius: 10,
+  },
+  '3d': {
+    key: '3d', dark: true,
+    bg: '#11141A', ink: '#FFFFFF', inkSoft: 'rgba(255,255,255,0.82)', muted: 'rgba(255,255,255,0.60)', faint: 'rgba(255,255,255,0.42)',
+    accent: '#FFC61E', accentDeep: '#E39B00', accentSoft: 'rgba(255,198,30,0.16)',
+    card: '#232932', cardEdge: 'rgba(255,255,255,0.10)', cardAlt: '#1A1F26',
+    titleFam: 'u', titleW: 800, titleSize: 27,
+    kicker: '#FFC61E', lead: 'rgba(255,255,255,0.78)', foot: 'rgba(255,255,255,0.38)', rule: 'rgba(255,255,255,0.12)',
+    shadow: { color: 'rgba(0,0,0,0.55)', blur: 30, y: 16 },
+    shadowSoft: { color: 'rgba(0,0,0,0.42)', blur: 16, y: 8 },
+    radius: 18,
+  },
+};
+
+// ---------- примитивы ----------
+function shadow(ctx, s) {
+  if (!s) return;
+  ctx.shadowColor = s.color; ctx.shadowBlur = s.blur; ctx.shadowOffsetX = s.x || 0; ctx.shadowOffsetY = s.y || 0;
+}
+function noShadow(ctx) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; }
+
+function rr(ctx, x, y, w, h, r, fill, o = {}) {
+  ctx.beginPath();
+  if (r > 0) ctx.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); else ctx.rect(x, y, w, h);
+  if (fill) { ctx.fillStyle = fill; shadow(ctx, o.shadow); ctx.fill(); noShadow(ctx); }
+  if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = o.strokeW || 1; ctx.stroke(); }
+  trackB(y + h);
+  return { x, y, w, h };
+}
+function rect(ctx, x, y, w, h, fill, o = {}) { return rr(ctx, x, y, w, h, 0, fill, o); }
+function circle(ctx, cx, cy, r, fill, o = {}) {
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; shadow(ctx, o.shadow); ctx.fill(); noShadow(ctx); }
+  if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = o.strokeW || 1; ctx.stroke(); }
+}
+function line(ctx, x1, y1, x2, y2, color, w = 1, dash) {
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+}
+function poly(ctx, pts, fill, o = {}) {
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; shadow(ctx, o.shadow); ctx.fill(); noShadow(ctx); }
+  if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = o.strokeW || 1; ctx.stroke(); }
+}
+function lg(ctx, x0, y0, x1, y1, stops) {
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+function rg(ctx, x0, y0, r0, x1, y1, r1, stops) {
+  const g = ctx.createRadialGradient(x0, y0, r0, x1, y1, r1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+
+// ---------- текст ----------
+function setFont(ctx, o) {
+  ctx.font = tf(o.size, o.weight === undefined ? 400 : o.weight, o.fam || 'o');
+  ctx.letterSpacing = o.ls ? `${o.ls}px` : '0px';
+}
+function text(ctx, s, x, y, o = {}) {
+  setFont(ctx, o);
+  ctx.fillStyle = o.color || C.ink;
+  ctx.textAlign = o.align || 'left';
+  ctx.textBaseline = o.baseline || 'alphabetic';
+  ctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+  ctx.fillText(s, x, y);
+  trackB(y + o.size * 0.28);
+  ctx.globalAlpha = 1; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.letterSpacing = '0px';
+}
+function measure(ctx, s, o) { setFont(ctx, o); const w = ctx.measureText(s).width; ctx.letterSpacing = '0px'; return w; }
+
+function wrap(ctx, s, maxW, o) {
+  const lines = [];
+  for (const hard of String(s).split('\n')) {
+    const words = hard.split(/\s+/).filter(Boolean);
+    if (!words.length) { lines.push(''); continue; }
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const t = cur + ' ' + words[i];
+      if (measure(ctx, t, o) <= maxW) cur = t;
+      else { lines.push(cur); cur = words[i]; }
+    }
+    lines.push(cur);
+  }
+  return lines;
+}
+
+// абзац: возвращает высоту; при переполнении предупреждает
+function para(ctx, s, x, y, maxW, o = {}) {
+  const maxLines = o.maxLines || 99;
+  const page = o.page || '?';
+  let size = o.size;
+  let lines = wrap(ctx, s, maxW, { ...o, size });
+  // авто-подгон: если строк больше допустимого — уменьшаем кегль
+  if (lines.length > maxLines) {
+    const minSize = o.minSize || Math.max(8.4, o.size - 2.6);
+    while (lines.length > maxLines && size > minSize) {
+      size -= 0.2;
+      lines = wrap(ctx, s, maxW, { ...o, size });
+    }
+  }
+  if (lines.length > maxLines) { warn(page, `переполнение абзаца (${lines.length} > ${maxLines}): ${String(s).slice(0, 44)}…`); }
+  const k = size / o.size;
+  const lh = (o.lh || (o.size * 1.32)) * k;
+  const n = Math.min(lines.length, maxLines);
+  for (let i = 0; i < n; i++) text(ctx, lines[i], x, y + i * lh, { ...o, size });
+  return n * lh;
+}
+
+// подгон размера под ширину
+function fitSize(ctx, s, maxW, o, minSize = 11) {
+  let size = o.size;
+  while (size > minSize && measure(ctx, s, { ...o, size }) > maxW) size -= 0.5;
+  return size;
+}
+function fitText(ctx, s, x, y, maxW, o = {}) {
+  const size = fitSize(ctx, s, maxW, o, o.minSize || 11);
+  text(ctx, s, x, y, { ...o, size });
+  return size;
+}
+
+// ---------- изображения ----------
+const imgCache = new Map();
+function loadImg(rel) {
+  if (imgCache.has(rel)) return imgCache.get(rel);
+  const img = new Image();
+  img.src = fs.readFileSync(path.join(__dirname, 'assets', 'img', rel));
+  imgCache.set(rel, img);
+  return img;
+}
+function drawImg(ctx, rel, x, y, w, h, o = {}) {
+  const img = loadImg(rel);
+  ctx.save();
+  if (o.clip === 'round') { ctx.beginPath(); ctx.roundRect(x, y, w, h, o.r || 12); ctx.clip(); }
+  else if (o.clip === 'tri') { ctx.beginPath(); o.triPath(ctx); ctx.clip(); }
+  else { ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); }
+  const ar = img.width / img.height, boxAr = w / h;
+  let sw = img.width, sh = img.height, sx = 0, sy = 0;
+  if (ar > boxAr) { sw = img.height * boxAr; sx = (img.width - sw) / 2; }
+  else { sh = img.width / boxAr; sy = (img.height - sh) / 2; }
+  ctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  ctx.globalAlpha = 1;
+  if (o.overlay) { ctx.fillStyle = o.overlay; ctx.fillRect(x, y, w, h); }
+  if (o.grad) { ctx.fillStyle = o.grad; ctx.fillRect(x, y, w, h); }
+  ctx.restore();
+  return img;
+}
+
+// ---------- фоны ----------
+function bgClassic(ctx, th) {
+  ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
+}
+function bg3d(ctx) {
+  ctx.fillStyle = lg(ctx, 0, 0, W * 0.6, H, [[0, '#191D25'], [0.55, '#12151B'], [1, '#0C0E13']]);
+  ctx.fillRect(0, 0, W, H);
+  // верхний свет
+  ctx.fillStyle = rg(ctx, W * 0.78, -60, 20, W * 0.78, -60, 520, [[0, 'rgba(255,198,30,0.20)'], [1, 'rgba(255,198,30,0)']]);
+  ctx.fillRect(0, 0, W, H);
+  // сетка-пол
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 14; i++) {
+    const x = -200 + i * 100;
+    ctx.beginPath(); ctx.moveTo(W / 2 + (x - W / 2) * 0.35, H * 0.72); ctx.lineTo(x, H + 30); ctx.stroke();
+  }
+  for (let i = 1; i <= 7; i++) {
+    const y = H * 0.72 + Math.pow(i / 7, 2.1) * (H * 0.30);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+function bg(ctx, th) { if (th.dark) bg3d(ctx); else bgClassic(ctx, th); }
+
+// ---------- карточки / панели ----------
+function card(ctx, th, x, y, w, h, o = {}) {
+  if (!th.dark) {
+    const fill = o.fill || th.card;
+    rr(ctx, x, y, w, h, o.r === undefined ? th.radius : o.r, fill, {
+      stroke: o.stroke === false ? null : (o.stroke || th.cardEdge), strokeW: 1,
+      shadow: o.flat ? null : (o.shadow || th.shadowSoft),
+    });
+    if (o.topAccent) {
+      rr(ctx, x, y, w, 4, 2, o.topAccent);
+    }
+  } else {
+    const fill = o.fill || lg(ctx, x, y, x, y + h, [[0, '#2B323C'], [1, '#1B2028']]);
+    rr(ctx, x, y, w, h, o.r === undefined ? th.radius : o.r, fill, {
+      stroke: o.stroke || th.cardEdge, strokeW: 1, shadow: o.flat ? null : (o.shadow || th.shadow),
+    });
+    // блик сверху
+    ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, o.r === undefined ? th.radius : o.r); ctx.clip();
+    ctx.fillStyle = lg(ctx, x, y, x, y + 26, [[0, 'rgba(255,255,255,0.10)'], [1, 'rgba(255,255,255,0)']]);
+    ctx.fillRect(x, y, w, 26);
+    ctx.restore();
+    if (o.topAccent) rr(ctx, x, y, w, 3, 2, o.topAccent);
+  }
+}
+
+// 3D-плашка (жёлтая, объёмная)
+function bar3d(ctx, x, y, w, h, o = {}) {
+  const c1 = o.c1 || '#FFD65C', c2 = o.c2 || '#E9A100';
+  rr(ctx, x, y + 4, w, h, o.r || 8, lg(ctx, x, y, x, y + h, [[0, '#000000'], [1, '#000000']]), { shadow: { color: 'rgba(0,0,0,0.35)', blur: 14, y: 6 } });
+  ctx.save();
+  ctx.globalAlpha = 0.001; // заглушка, чтобы тень сработала выше
+  ctx.restore();
+  rr(ctx, x, y, w, h, o.r || 8, lg(ctx, x, y, x, y + h, [[0, c1], [1, c2]]), {});
+  // верхний блик
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, o.r || 8); ctx.clip();
+  ctx.fillStyle = lg(ctx, x, y, x, y + h * 0.45, [[0, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]);
+  ctx.fillRect(x, y, w, h * 0.5);
+  ctx.restore();
+}
+
+// ---------- шапка слайда ----------
+function header(ctx, th, p, o) {
+  const { kicker, title, lead, note } = o;
+  const page = p;
+  bg(ctx, th);
+  let cy = 0;
+  if (kicker) {
+    if (!th.dark) {
+      rect(ctx, ML, 32, 24, 3, th.accent);
+      text(ctx, kicker.toUpperCase(), ML + 33, 37, { size: 10.5, weight: 700, ls: 1.8, color: th.kicker });
+    } else {
+      text(ctx, kicker.toUpperCase(), ML, 37, { size: 10.5, weight: 700, ls: 2.1, color: th.accent });
+    }
+    cy = 37;
+  }
+  // заголовок (до 2 строк)
+  const ts = o.titleSize || th.titleSize;
+  const tls = th.dark ? -0.4 : -0.6;
+  const tLines = wrap(ctx, title, CW - 4, { size: ts, weight: th.titleW, fam: th.titleFam, ls: tls });
+  if (tLines.length > 2) warn(page, `заголовок > 2 строк: ${title}`);
+  const lhT = ts * 1.18;
+  const baseY = cy + (kicker ? 34 : 30);
+  tLines.slice(0, 2).forEach((l, i) => {
+    text(ctx, l, ML, baseY + i * lhT, { size: ts, weight: th.titleW, fam: th.titleFam, color: th.ink, ls: tls });
+  });
+  cy = baseY + (Math.min(tLines.length, 2) - 1) * lhT;
+  if (o.rule !== false && !th.dark) { /* линия под шапкой рисуется ниже */ }
+  if (lead) {
+    const base = o.leadSize || (th.dark ? 15 : 16);
+    let lsz = base, lines = wrap(ctx, lead, CW - 16, { size: lsz, weight: 400 });
+    while (lines.length > 1 && lsz > base - 3.5) {
+      lsz -= 0.5;
+      lines = wrap(ctx, lead, CW - 16, { size: lsz, weight: 400 });
+    }
+    const startY = cy + 26;
+    const used = para(ctx, lead, ML, startY, CW - 16, { size: lsz, weight: 400, color: th.lead, lh: lsz * 1.3, page, maxLines: 2 });
+    cy = startY + used - lsz * 1.3 + 7;
+  } else {
+    cy = cy + 8;
+  }
+  if (note) {
+    cy += 16;
+    const used = para(ctx, note, ML, cy, CW - 16, { size: 11, weight: 400, color: th.muted, lh: 14, page, maxLines: 2 });
+    cy += used;
+  }
+  return Math.round(cy + (o.gap === undefined ? 14 : o.gap));
+}
+
+function footer(ctx, th, sources, num) {
+  if (_maxBottom > H - 36) warn(num, `контент заходит в подвал: низ ${Math.round(_maxBottom)} > ${H - 36}`);
+  line(ctx, ML, H - 34, W - MR, H - 34, th.dark ? 'rgba(255,255,255,0.10)' : '#DED7C9', 1);
+  if (sources) {
+    const fs2 = th.dark ? 7.8 : 8.6;
+    let lines = wrap(ctx, sources, CW - 60, { size: fs2 });
+    let sz = fs2;
+    while (lines.length > 2 && sz > 6.6) { sz -= 0.2; lines = wrap(ctx, sources, CW - 60, { size: sz }); }
+    const use = lines.slice(0, 2);
+    use.forEach((l, i) => text(ctx, l, ML, H - (use.length > 1 ? 22 : 20) + i * (sz * 1.22), { size: sz, color: th.foot }));
+    if (lines.length > 2) warn(num, 'сноска обрезана');
+  }
+  text(ctx, String(num), W - MR, H - 18, { size: 11, weight: 600, color: th.faint, align: 'right' });
+}
+
+// ---------- KPI ----------
+function kpi(ctx, th, x, y, w, h, o) {
+  card(ctx, th, x, y, w, h, { topAccent: th.dark ? null : (o.accent === undefined ? th.accent : o.accent), shadow: o.flat ? null : undefined });
+  if (th.dark && o.accent !== null) rr(ctx, x + 18, y + 11, 20, 2.5, 1.5, th.accent);
+  const padX = th.dark ? 18 : 16;
+  const padT = th.dark ? 21 : (o.accent === null ? 14 : 18);
+  const ls = o.labelSize || 9.4;
+  const ns = o.noteSize || 9.6;
+  let noteLines = o.note ? wrap(ctx, o.note, w - padX * 2, { size: ns }) : [];
+  let noteSize = ns;
+  while (noteLines.length > 1 && noteSize > 7.6) { noteSize -= 0.2; noteLines = wrap(ctx, o.note, w - padX * 2, { size: noteSize }); }
+  const noteBlock = noteLines.length * (noteSize * 1.24);
+  if (o.label) {
+    let lsz = ls;
+    let lines = wrap(ctx, o.label.toUpperCase(), w - padX * 2, { size: lsz, weight: 600, ls: 0.8 });
+    while (lines.length > 1 && lsz > 6.6) { lsz -= 0.2; lines = wrap(ctx, o.label.toUpperCase(), w - padX * 2, { size: lsz, weight: 600, ls: 0.8 }); }
+    text(ctx, lines.join(' '), x + padX, y + padT + lsz * 0.72, { size: lsz, weight: 600, ls: 0.8, color: th.muted });
+  }
+  let vsize = o.size || 24;
+  const minTop = y + padT + ls * 1.05 + 5;
+  let valueBase = y + h - 12 - noteBlock + (o.note ? 0 : 2);
+  while (valueBase - vsize * 0.74 < minTop && vsize > 11) vsize -= 0.5;
+  if (valueBase - vsize * 0.74 < minTop) valueBase = minTop + vsize * 0.74;
+  if (o.value) {
+    fitText(ctx, o.value, x + padX, valueBase, w - padX * 2, { size: vsize, weight: 800, color: o.valueColor || th.ink, ls: -0.8, minSize: 11 });
+  }
+  if (o.note) {
+    noteLines.forEach((l, i) => text(ctx, l, x + padX, y + h - 11 - noteBlock + noteSize * 0.92 + i * (noteSize * 1.24), { size: noteSize, color: o.noteColor || (th.dark ? 'rgba(255,255,255,0.52)' : C.muted) }));
+  }
+}
+
+module.exports = {
+  W, H, ML, MR, CW, C, THEMES, warnings, warn, registerFonts, tf, text, measure, wrap, para, fitText, fitSize,
+  rr, rect, circle, line, poly, lg, rg, card, bar3d, header, footer, kpi, bg, bg3d, bgClassic, drawImg, shadow, noShadow,
+  createCanvas, PDFDocument, resetBottom, getBottom: () => _maxBottom,
+};
