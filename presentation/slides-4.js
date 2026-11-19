@@ -21,12 +21,6 @@ slides[31] = (ctx, th) => {
   });
   card(ctx, th, ML, top, CW, H - 46 - top, {});
   const cols = [180, 108, 300, 268];
-  const head = ['ЭТАП', '', 'БАРЬЕР · ГДЕ ТЕРЯЕМ КЛИЕНТА', 'НАШЕ ДЕЙСТВИЕ 2027'];
-  let hx = ML + 20;
-  [0, 2, 3].forEach((ci, k) => {
-    text(ctx, head[ci], hx + (k === 0 ? 0 : 0), top + 30, { size: 8.4, weight: 700, ls: 1, color: th.muted });
-    hx += 0;
-  });
   const xs = [ML + 20, ML + 20 + cols[0] + cols[1], ML + 20 + cols[0] + cols[1] + cols[2]];
   text(ctx, 'ЭТАП', xs[0], top + 30, { size: 8.4, weight: 700, ls: 1, color: th.muted });
   text(ctx, 'БАРЬЕР · ГДЕ ТЕРЯЕМ КЛИЕНТА', xs[1], top + 30, { size: 8.4, weight: 700, ls: 1, color: th.muted });
@@ -343,18 +337,25 @@ slides[39] = (ctx, th) => {
     { label: 'Доля рынка проекта', value: '28,5%', note: '2026: 18,2% · +10,3 п.п.' },
     { label: 'Рынок проекта, Приморье', value: '1,25 млрд ₽', note: 'двери 800 · входные 250 · фурнитура 200' },
   ], { size: 20 });
-  const gy = top + 90, ph = 176;
+  const gy = top + 90, ph = 190;
   const lw = 430;
   card(ctx, th, ML, gy, lw, ph, {});
   U.panelHead(ctx, th, ML + 18, gy + 28, lw - 36, 'Категории и наши доли');
-  const cats = [['225', 'Межкомнатные', '159,7 млн ₽ · рынок 800 млн ₽', 'Доля 20% · +25,7% г-1 · ядро проекта 70% GMV'], ['210', 'Входные', '37,2 млн ₽ · рынок 250 млн ₽', 'Доля 15% · +10,0% г-1 · рост — установка МКД'], ['1005', 'Фурнитура', '31,4 млн ₽ · рынок 200 млн ₽', 'Доля 16% · +0,1% г-1 · сток ручек на ДС'], ['—', 'Итого · Двери', '228,3 млн ₽ · рынок 1,25 млрд ₽', 'Доля 18,2% · +19,0% · цель 2027 — 356 млн ₽']];
+  // строка в две колонки-этажа: слева «рынок», справа «доля и динамика», без наложений
+  const cats = [
+    ['225', 'Межкомнатные', '159,7 млн ₽ · рынок 800 млн ₽', 'доля 20% · +25,7% г-1', 'ядро проекта — 70% GMV'],
+    ['210', 'Входные', '37,2 млн ₽ · рынок 250 млн ₽', 'доля 15% · +10,0% г-1', 'рост — установка в МКД'],
+    ['1005', 'Фурнитура', '31,4 млн ₽ · рынок 200 млн ₽', 'доля 16% · +0,1% г-1', 'сток ручек на ДС'],
+    ['—', 'Итого · Двери', '228,3 млн ₽ · рынок 1,25 млрд ₽', 'доля 18,2% · +19,0%', 'цель 2027 — 356 млн ₽'],
+  ];
   cats.forEach((c, i) => {
-    const y = gy + 44 + i * 33;
-    if (i === 3) line(ctx, ML + 18, y - 4, ML + lw - 18, y - 4, th.rule, 1);
+    const y = gy + 42 + i * 35;
+    if (i === 3) line(ctx, ML + 18, y - 6, ML + lw - 18, y - 6, th.rule, 1);
     text(ctx, c[0], ML + 18, y + 12, { size: 9, weight: 700, color: d ? C.yellow : C.yellowDeep });
     text(ctx, c[1], ML + 60, y + 12, { size: 10.6, weight: 700, color: th.ink });
-    text(ctx, c[2], ML + 168, y + 12, { size: 9.4, color: th.muted });
-    text(ctx, c[3], ML + lw - 18, y + 12, { size: 9.4, weight: 600, color: th.inkSoft, align: 'right' });
+    text(ctx, c[3], ML + lw - 18, y + 11, { size: 9.6, weight: 700, color: d ? C.yellow : C.yellowDeep, align: 'right' });
+    text(ctx, c[2], ML + 60, y + 25, { size: 9, color: th.muted });
+    text(ctx, c[4], ML + lw - 18, y + 25, { size: 9, color: th.muted, align: 'right' });
   });
   const rx = ML + lw + 14, rw = W - MR - rx;
   card(ctx, th, rx, gy, rw, ph, {});

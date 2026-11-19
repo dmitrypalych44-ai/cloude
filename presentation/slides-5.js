@@ -112,10 +112,18 @@ slides[41] = (ctx, th) => {
   const rx = mx + mw + 12, rw = W - MR - rx;
   card(ctx, th, rx, gy, rw, ph, {});
   U.panelHead(ctx, th, rx + 18, gy + 28, rw - 36, 'Конкуренты проекта');
-  ['Мистер Т', 'Аквастор', 'Ozon', 'Прогрессстрой', '14 слон'].forEach((p, i) => {
-    U.chip(ctx, th, rx + 18 + (i % 3) * ((rw - 36) / 3), gy + 48 + Math.floor(i / 3) * 26, p, { size: 9.2 });
-  });
-  para(ctx, 'Онлайн забирает простые позиции и цену; специализированные сети держат экспертизу и наличие.', rx + 18, gy + 106, rw - 36, { size: 9.6, lh: 12, color: th.inkSoft, maxLines: 3, page: 41 });
+  {
+    // чипы в потоке с переносом: длинные названия («Прогрессстрой») не наезжают на соседей
+    const cs = 8.4, cpad = 18, inner = rw - 36;
+    let cx = rx + 18, cy = gy + 46;
+    for (const name of ['Мистер Т', 'Аквастор', 'Ozon', 'Прогрессстрой', '14 слон']) {
+      const wch = measure(ctx, name, { size: cs, weight: 700, ls: 0.4 }) + cpad;
+      if (cx + wch > rx + 18 + inner + 0.5 && cx > rx + 18) { cx = rx + 18; cy += 25; }
+      U.chip(ctx, th, cx, cy, name, { size: cs });
+      cx += wch + 6;
+    }
+    para(ctx, 'Онлайн забирает простые позиции и цену; специализированные сети держат экспертизу и наличие.', rx + 18, cy + 34, inner, { size: 9.4, lh: 11.6, color: th.inkSoft, maxLines: 3, page: 41 });
+  }
   // профиль
   const by = gy + ph + 12;
   card(ctx, th, ML, by, CW, 88, {});
@@ -452,10 +460,10 @@ slides[49] = (ctx, th) => {
     drawImg(ctx, 'bridge.jpg', 470, 26, 464, 488, { clip: 'round', r: 22, overlay: 'rgba(8,10,14,0.45)' });
     rr(ctx, 470, 26, 464, 488, 22, null, { stroke: 'rgba(255,198,30,0.4)', strokeW: 1.2 });
     logo(ctx, d, ML, 40, 118);
-    text(ctx, 'ИТОГ СТРАТЕГИИ', ML, 204, { size: 10.5, weight: 700, ls: 3, color: C.yellow });
-    const tl = wrap(ctx, 'Шесть миров, вайтбокс, проектный центр и один путь клиента', 380, { size: 25, weight: 800, fam: 'u', ls: -0.8 });
-    tl.forEach((l, i) => text(ctx, l, ML, 250 + i * 36, { size: 25, weight: 800, fam: 'u', color: '#fff', ls: -0.8 }));
-    para(ctx, 'Прирост даёт не полка, а связка: White Box и инженерка комплектом, доступность под проект, зал как верхняя воронка, ПРО в зале и проектный центр в одну воронку.', ML, 250 + tl.length * 36 + 24, 380, { size: 12, lh: 17, color: 'rgba(255,255,255,0.72)', maxLines: 4, page: 49 });
+    text(ctx, 'ИТОГ СТРАТЕГИИ', ML, 190, { size: 10.5, weight: 700, ls: 3, color: C.yellow });
+    const tl = wrap(ctx, 'Шесть миров, вайтбокс, проектный центр и один путь клиента', 400, { size: 24, weight: 800, fam: 'u', ls: -0.8 });
+    tl.forEach((l, i) => text(ctx, l, ML, 236 + i * 34, { size: 24, weight: 800, fam: 'u', color: '#fff', ls: -0.8 }));
+    para(ctx, 'Прирост даёт не полка, а связка: White Box и инженерка комплектом, доступность под проект, зал как верхняя воронка, ПРО в зале и проектный центр в одну воронку.', ML, 236 + tl.length * 34 + 18, 400, { size: 11.4, lh: 15.6, color: 'rgba(255,255,255,0.72)', maxLines: 3, page: 49 });
     const stats = [['9,1 → 14,5', 'млрд ₽ GMV'], ['6 334,9', 'млн ₽ магазин 75'], ['550', 'млн ₽ вайтбокс'], ['1 012', 'млн ₽ ПЦ']];
     stats.forEach((s, i) => {
       const x = ML + (i % 2) * 196;

@@ -116,7 +116,7 @@ slides[2] = (ctx, th) => {
   // график
   const ch = 174;
   card(ctx, th, rx, ly, rw, ch, {});
-  text(ctx, 'Плановые сроки ввода МКД, тыс. м²', rx + 18, ly + 28, { size: 11.5, weight: 700, color: th.ink });
+  text(ctx, 'Плановые сроки ввода МКД', rx + 18, ly + 28, { size: 11.5, weight: 700, color: th.ink });
   const chartX = rx + 54, chartY = ly + 46, chartW = rw - 76, chartH = 100;
   const data = [{ y: 2026, v: 205 }, { y: 2027, v: 330 }, { y: 2028, v: 210 }, { y: 2029, v: 160 }, { y: 2030, v: 55 }];
   const maxV = 340;
@@ -136,7 +136,7 @@ slides[2] = (ctx, th) => {
     text(ctx, String(p.y), bx + bw / 2, chartY + chartH + 14, { size: 9, color: hot ? th.ink : th.muted, align: 'center', weight: hot ? 700 : 400 });
     if (hot) text(ctx, String(p.v), bx + bw / 2, chartY + chartH - bh - 6, { size: 9.5, weight: 700, color: d ? C.yellow : C.yellowDeep, align: 'center' });
   });
-  text(ctx, '2027 — пик ввода · тыс. м²', rx + rw - 18, ly + 28, { size: 9, color: th.muted, align: 'right' });
+  text(ctx, 'тыс. м² · пик 2027', rx + rw - 18, ly + 28, { size: 9, color: th.muted, align: 'right' });
   // 251 МКД
   const y2 = ly + ch + 12;
   card(ctx, th, rx, y2, rw, Math.max(150, 486 - y2), {});
