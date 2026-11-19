@@ -24,9 +24,10 @@ slides[1] = (ctx, th) => {
   const d = th.dark;
   bg(ctx, th);
   if (!d) {
-    drawImg(ctx, 'bridge.jpg', 468, 0, 492, H, {}); // фото во всю высоту
-    ctx.fillStyle = lg(ctx, 468, 0, 620, 0, [[0, 'rgba(0,0,0,0.28)'], [1, 'rgba(0,0,0,0)']]);
-    ctx.fillRect(468, 0, 152, H);
+    drawImg(ctx, 'bridge.jpg', 468, 0, 492, H, {
+      grad: lg(ctx, 468, 0, 620, 0, [[0, 'rgba(0,0,0,0.28)'], [1, 'rgba(0,0,0,0)']]),
+      gradRect: { x: 468, y: 0, w: 152, h: H },
+    }); // фото во всю высоту
     poly(ctx, [[790, 0], [960, 0], [960, 128]], C.yellow);
     rect(ctx, 468, 0, 2, H, C.paper);
     logo(ctx, false, 56, 34, 104);

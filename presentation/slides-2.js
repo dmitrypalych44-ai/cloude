@@ -20,10 +20,11 @@ slides[11] = (ctx, th) => {
   const d = th.dark;
   bg(ctx, th);
   if (!d) {
-    drawImg(ctx, 'store.jpg', 604, 0, 356, H, {});
+    drawImg(ctx, 'store.jpg', 604, 0, 356, H, {
+      grad: lg(ctx, 604, 0, 700, 0, [[0, 'rgba(0,0,0,0.35)'], [1, 'rgba(0,0,0,0)']]),
+      gradRect: { x: 604, y: 0, w: 96, h: H },
+    });
     poly(ctx, [[604, 0], [548, 0], [664, H], [604, H]], C.yellow, {});
-    ctx.fillStyle = lg(ctx, 604, 0, 700, 0, [[0, 'rgba(0,0,0,0.35)'], [1, 'rgba(0,0,0,0)']]);
-    ctx.fillRect(604, 0, 96, H);
     logo(ctx, d, ML, 40, 128);
     rect(ctx, ML, 214, 90, 4, C.yellow);
     text(ctx, 'СТРАТЕГИЯ ПРО', ML, 268, { size: 15, weight: 700, ls: 3.4, color: C.yellowDeep });

@@ -7,7 +7,9 @@
     "build": "node build.js all",
     "build:classic": "node build.js classic",
     "build:3d": "node build.js 3d",
-    "png": "node build.js all --png"
+    "png": "node build.js all --png",
+    "scene": "PPTX_FONTS=safe node export-scene.js all",
+    "pptx": "npm run scene && python3 scene2pptx.py out/scene-classic.json out/strategiya-2027-classic.pptx safe && python3 scene2pptx.py out/scene-3d.json out/strategiya-2027-3d.pptx safe"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.3.0"

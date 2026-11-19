@@ -9,6 +9,25 @@ const ML = 56, MR = 56, CW = W - ML - MR;
 
 const warnings = [];
 let _maxBottom = 0;
+// ---- запись операций для экспорта в PPTX ----
+let EMIT = null;
+const GRAD = new WeakMap();
+let SHADOW = null, ALPHA = 1, DASH = null;
+let CLIP = null;  // текущая область отсечения (для PPTX-экспорта изображений)
+function setEmitter(fn) { EMIT = fn; }
+function emit(op) {
+  if (!EMIT) return;
+  if (ALPHA !== 1) op.alpha = ALPHA;
+  if (DASH && DASH.length) op.dash = DASH.slice();
+  if (SHADOW) op.shadow = { ...SHADOW };
+  EMIT(op);
+}
+function colorInfo(f) {
+  if (!f) return null;
+  if (typeof f === 'string') return f;
+  const g = GRAD.get(f);
+  return g ? { grad: true, ...g } : null;
+}
 function resetBottom() { _maxBottom = 0; }
 function trackB(y) { if (y > _maxBottom) _maxBottom = y; }
 function warn(page, msg) { warnings.push(`${page}: ${msg}`); }
@@ -16,8 +35,15 @@ function warn(page, msg) { warnings.push(`${page}: ${msg}`); }
 // ---------- шрифты ----------
 const FONT_DIR = path.join(__dirname, 'assets', 'fonts');
 let fontsReady = false;
+// режим «системных» шрифтов для PPTX (Arimo = метрики Arial, есть кириллица и ₽)
+const PPTX_FONTS = process.env.PPTX_FONTS === 'safe';
 function registerFonts() {
   if (fontsReady) return;
+  if (PPTX_FONTS) {
+    for (const f of ['Arimo-400', 'Arimo-700', 'Arimo-Italic-400', 'Arimo-Italic-700']) {
+      try { GlobalFonts.registerFromPath(path.join(FONT_DIR, 'safe', `${f}.ttf`), f); } catch (e) { /* нет файла — не критично */ }
+    }
+  }
   for (const w of [300, 400, 500, 600, 700, 800]) {
     GlobalFonts.registerFromPath(path.join(FONT_DIR, `Onest-${w}.ttf`), `Onest-${w}`);
   }
@@ -27,6 +53,7 @@ function registerFonts() {
   fontsReady = true;
 }
 function tf(size, weight = 400, fam = 'o') {
+  if (PPTX_FONTS) return `${weight >= 600 ? 700 : 400} ${size}px Arimo-${weight >= 600 ? 700 : 400}`;
   return `${weight} ${size}px ${fam === 'u' ? 'Unbounded' : 'Onest'}-${weight}`;
 }
 
@@ -68,11 +95,16 @@ const THEMES = {
 // ---------- примитивы ----------
 function shadow(ctx, s) {
   if (!s) return;
+  SHADOW = { color: s.color, blur: s.blur, x: s.x || 0, y: s.y || 0 };
   ctx.shadowColor = s.color; ctx.shadowBlur = s.blur; ctx.shadowOffsetX = s.x || 0; ctx.shadowOffsetY = s.y || 0;
 }
-function noShadow(ctx) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; }
+function noShadow(ctx) { SHADOW = null; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; }
 
 function rr(ctx, x, y, w, h, r, fill, o = {}) {
+  const _prevShadow = SHADOW;
+  if (o.shadow) SHADOW = { color: o.shadow.color, blur: o.shadow.blur, x: o.shadow.x || 0, y: o.shadow.y || 0 };
+  emit({ op: 'rr', x, y, w, h, r: r || 0, fill: colorInfo(fill), stroke: o.stroke || null, strokeW: o.strokeW || 1 });
+  SHADOW = _prevShadow;
   ctx.beginPath();
   if (r > 0) ctx.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); else ctx.rect(x, y, w, h);
   if (fill) { ctx.fillStyle = fill; shadow(ctx, o.shadow); ctx.fill(); noShadow(ctx); }
@@ -82,15 +114,25 @@ function rr(ctx, x, y, w, h, r, fill, o = {}) {
 }
 function rect(ctx, x, y, w, h, fill, o = {}) { return rr(ctx, x, y, w, h, 0, fill, o); }
 function circle(ctx, cx, cy, r, fill, o = {}) {
+  const _prevShadow = SHADOW;
+  if (o.shadow) SHADOW = { color: o.shadow.color, blur: o.shadow.blur, x: o.shadow.x || 0, y: o.shadow.y || 0 };
+  emit({ op: 'circle', cx, cy, r, fill: colorInfo(fill), stroke: o.stroke || null, strokeW: o.strokeW || 1 });
+  SHADOW = _prevShadow;
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
   if (fill) { ctx.fillStyle = fill; shadow(ctx, o.shadow); ctx.fill(); noShadow(ctx); }
   if (o.stroke) { ctx.strokeStyle = o.stroke; ctx.lineWidth = o.strokeW || 1; ctx.stroke(); }
 }
 function line(ctx, x1, y1, x2, y2, color, w = 1, dash) {
+  DASH = dash;
+  emit({ op: 'line', x1, y1, x2, y2, color, w });
+  DASH = null;
   ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
   ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
 }
+function polyClip(pts) { return pts; }
 function poly(ctx, pts, fill, o = {}) {
+  if (o.clipSet) CLIP = pts;
+  emit({ op: 'poly', pts, fill: colorInfo(fill), stroke: o.stroke || null, strokeW: o.strokeW || 1 });
   ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
   ctx.closePath();
@@ -100,11 +142,13 @@ function poly(ctx, pts, fill, o = {}) {
 function lg(ctx, x0, y0, x1, y1, stops) {
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
   for (const [p, c] of stops) g.addColorStop(p, c);
+  GRAD.set(g, { type: 'linear', x0, y0, x1, y1, stops });
   return g;
 }
 function rg(ctx, x0, y0, r0, x1, y1, r1, stops) {
   const g = ctx.createRadialGradient(x0, y0, r0, x1, y1, r1);
   for (const [p, c] of stops) g.addColorStop(p, c);
+  GRAD.set(g, { type: 'radial', x0, y0, x1, y1, stops });
   return g;
 }
 
@@ -114,12 +158,18 @@ function setFont(ctx, o) {
   ctx.letterSpacing = o.ls ? `${o.ls}px` : '0px';
 }
 function text(ctx, s, x, y, o = {}) {
+  if (typeof o !== 'object' || typeof o.size !== 'number' || !isFinite(o.size)) {
+    throw new Error(`text(): некорректный size у «${String(s).slice(0, 30)}» (${JSON.stringify(o)})`);
+  }
   setFont(ctx, o);
   ctx.fillStyle = o.color || C.ink;
   ctx.textAlign = o.align || 'left';
   ctx.textBaseline = o.baseline || 'alphabetic';
-  ctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+  ALPHA = o.alpha === undefined ? 1 : o.alpha;
+  emit({ op: 'text', s, x, y, size: o.size, weight: o.weight === undefined ? 400 : o.weight, fam: o.fam || 'o', color: o.color || C.ink, align: o.align || 'left', ls: o.ls || 0, w: ctx.measureText(s).width });
+  ctx.globalAlpha = ALPHA;
   ctx.fillText(s, x, y);
+  ALPHA = 1;
   trackB(y + o.size * 0.28);
   ctx.globalAlpha = 1; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.letterSpacing = '0px';
 }
@@ -184,6 +234,8 @@ function loadImg(rel) {
   imgCache.set(rel, img);
   return img;
 }
+function ptsDummy() { return []; }
+function ptsDummy2() { return []; }
 function drawImg(ctx, rel, x, y, w, h, o = {}) {
   const img = loadImg(rel);
   ctx.save();
@@ -194,20 +246,27 @@ function drawImg(ctx, rel, x, y, w, h, o = {}) {
   let sw = img.width, sh = img.height, sx = 0, sy = 0;
   if (ar > boxAr) { sw = img.height * boxAr; sx = (img.width - sw) / 2; }
   else { sh = img.width / boxAr; sy = (img.height - sh) / 2; }
+  emit({ op: 'image', file: rel, x, y, w, h, clip: o.clip || 'rect', r: o.r || 0, overlay: o.overlay || null,
+    alpha: o.alpha === undefined ? 1 : o.alpha, region: CLIP,
+    grad: o.grad ? colorInfo(o.grad) : null, gradRect: o.gradRect || { x, y, w, h },
+    crop: { l: sx / img.width, t: sy / img.height, r: 1 - (sx + sw) / img.width, b: 1 - (sy + sh) / img.height } });
   ctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   ctx.globalAlpha = 1;
-  if (o.overlay) { ctx.fillStyle = o.overlay; ctx.fillRect(x, y, w, h); }
-  if (o.grad) { ctx.fillStyle = o.grad; ctx.fillRect(x, y, w, h); }
+  const gr = o.gradRect || { x, y, w, h };
+  if (o.overlay) { ctx.fillStyle = o.overlay; ctx.fillRect(gr.x, gr.y, gr.w, gr.h); }
+  if (o.grad) { ctx.fillStyle = o.grad; ctx.fillRect(gr.x, gr.y, gr.w, gr.h); }
   ctx.restore();
   return img;
 }
 
 // ---------- фоны ----------
 function bgClassic(ctx, th) {
+  emit({ op: 'bg', kind: 'paper', color: th.bg });
   ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
 }
 function bg3d(ctx) {
+  emit({ op: 'bg', kind: 'dark' });
   ctx.fillStyle = lg(ctx, 0, 0, W * 0.6, H, [[0, '#191D25'], [0.55, '#12151B'], [1, '#0C0E13']]);
   ctx.fillRect(0, 0, W, H);
   // верхний свет
@@ -244,11 +303,8 @@ function card(ctx, th, x, y, w, h, o = {}) {
     rr(ctx, x, y, w, h, o.r === undefined ? th.radius : o.r, fill, {
       stroke: o.stroke || th.cardEdge, strokeW: 1, shadow: o.flat ? null : (o.shadow || th.shadow),
     });
-    // блик сверху
-    ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, o.r === undefined ? th.radius : o.r); ctx.clip();
-    ctx.fillStyle = lg(ctx, x, y, x, y + 26, [[0, 'rgba(255,255,255,0.10)'], [1, 'rgba(255,255,255,0)']]);
-    ctx.fillRect(x, y, w, 26);
-    ctx.restore();
+    // блик сверху (через rr, чтобы он попадал и в PPTX-сцену)
+    rr(ctx, x, y, w, 26, o.r === undefined ? th.radius : o.r, lg(ctx, x, y, x, y + 26, [[0, 'rgba(255,255,255,0.10)'], [1, 'rgba(255,255,255,0)']]));
     if (o.topAccent) rr(ctx, x, y, w, 3, 2, o.topAccent);
   }
 }
@@ -262,10 +318,7 @@ function bar3d(ctx, x, y, w, h, o = {}) {
   ctx.restore();
   rr(ctx, x, y, w, h, o.r || 8, lg(ctx, x, y, x, y + h, [[0, c1], [1, c2]]), {});
   // верхний блик
-  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, o.r || 8); ctx.clip();
-  ctx.fillStyle = lg(ctx, x, y, x, y + h * 0.45, [[0, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]);
-  ctx.fillRect(x, y, w, h * 0.5);
-  ctx.restore();
+  rr(ctx, x, y, w, h * 0.5, o.r || 8, lg(ctx, x, y, x, y + h * 0.45, [[0, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]));
 }
 
 // ---------- шапка слайда ----------
@@ -365,5 +418,6 @@ function kpi(ctx, th, x, y, w, h, o) {
 module.exports = {
   W, H, ML, MR, CW, C, THEMES, warnings, warn, registerFonts, tf, text, measure, wrap, para, fitText, fitSize,
   rr, rect, circle, line, poly, lg, rg, card, bar3d, header, footer, kpi, bg, bg3d, bgClassic, drawImg, shadow, noShadow,
-  createCanvas, PDFDocument, resetBottom, getBottom: () => _maxBottom,
+  createCanvas, PDFDocument, resetBottom, getBottom: () => _maxBottom, setEmitter,
+  setClip: (v) => { CLIP = v; },
 };
