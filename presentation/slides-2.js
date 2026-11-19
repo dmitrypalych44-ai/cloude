@@ -9,9 +9,32 @@ function hbar(ctx, th, x, y, w, h, frac, o = {}) {
   if (!th.dark) rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFD65C'], [1, '#EFAE00']]));
   else rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFE39B'], [1, '#E39B00']]), { shadow: { color: 'rgba(255,198,30,0.5)', blur: 10, y: 0 } });
 }
+
+// ---------- знак-домик Лемана ПРО ----------
+// В светлой 3D-теме знак рисуется фигурами: он всегда виден и не зависит от темы.
+function houseMark(ctx, x, y, w, o = {}) {
+  const a = C.yellow;
+  const s = w / 100;
+  // пятиугольник дома (100 × 118 пропорции исходного знака)
+  poly(ctx, [[x + 50 * s, y], [x + 100 * s, y + 48 * s], [x + 100 * s, y + 118 * s], [x, y + 118 * s], [x, y + 48 * s]], a, {});
+  // белая «дверь» — тоже пятиугольник, соразмерно
+  poly(ctx, [[x + 50 * s, y + 40 * s], [x + 74 * s, y + 63 * s], [x + 74 * s, y + 100 * s], [x + 26 * s, y + 100 * s], [x + 26 * s, y + 63 * s]],
+    o.door || '#FFFFFF', {});
+}
+
 function logo(ctx, d, x, y, w) {
+  if (TH_LIGHT && d) {
+    // светлая 3D-сцена: жёлтый домик + тёмный логотип-надпись
+    const lh = w * 359 / 1281;              // высота логотипа как в исходной картинке
+    const hh = lh * 0.98, hw = hh / 1.18;   // домик по высоте логотипа
+    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: '#F3F0E9' });
+    drawImg(ctx, 'wordmark-dark.png', x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
+    return;
+  }
   drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', x, y, w, w * 359 / 1281);
 }
+
+const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
 
 const slides = {};
 
@@ -54,6 +77,7 @@ slides[11] = (ctx, th) => {
       text(ctx, k[1], ML + 190, y + 3, { size: 15, weight: 800, color: C.yellow, align: 'left' });
       text(ctx, k[2], ML + 300, y + 3, { size: 9.4, color: 'rgba(255,255,255,0.55)' });
     });
+    text(ctx, String(U.pageNum(11)), W - 44, H - 24, { size: 10, color: 'rgba(255,255,255,0.40)', align: 'right' });
   }
 };
 
@@ -235,8 +259,8 @@ slides[15] = (ctx, th) => {
   card(ctx, th, rx, top, rw, 214, { fill: d ? lg(ctx, rx, top, rx, top + 214, [[0, 'rgba(255,198,30,0.13)'], [1, 'rgba(255,198,30,0.02)']]) : C.yellowSoft });
   U.panelHead(ctx, th, rx + 18, top + 28, rw - 36, 'Транзитные отгрузки');
   text(ctx, '2026 — GMV ×4', rx + 18, top + 60, { size: 10.4, color: th.inkSoft });
-  text(ctx, '125 млн ₽', rx + 18, top + 90, { size: 27, weight: 800, color: th.ink, ls: -1 });
-  text(ctx, 'ЦЕЛЬ 2027', rx + 130, top + 74, { size: 9, weight: 700, ls: 1.2, color: d ? C.yellow : C.yellowDeep });
+  text(ctx, '125 млн ₽', rx + 18, top + 92, { size: 27, weight: 800, color: th.ink, ls: -1 });
+  text(ctx, 'ЦЕЛЬ 2027', rx + rw - 18, top + 62, { size: 9, weight: 700, ls: 1.2, color: d ? C.yellow : C.yellowDeep, align: 'right' });
   text(ctx, 'КЕЙСЫ 2026', rx + 18, top + 116, { size: 9, weight: 700, ls: 1.2, color: th.muted });
   const cases = [['Пеноплэкс → Партизанская ГРЭС', '7 млн ₽'], ['ДКК-ДВ → ЖК НебоПарк', '9 млн ₽'], ['ВСК → ЖК Днепровский', '7 млн ₽'], ['Пеноплэкс → Аэропорт Красноярска', '3 млн ₽']];
   cases.forEach((c, i) => {

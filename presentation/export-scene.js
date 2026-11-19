@@ -7,9 +7,14 @@ const L = require('./lib');
 
 L.registerFonts();
 const parts = [1, 2, 3, 4, 5].map((n) => path.join(__dirname, `slides-${n}.js`)).filter((f) => fs.existsSync(f));
+const base = {};
+for (const f of parts) Object.assign(base, require(f));
+const fySlide = require('./slides-fy.js').fy;
+const SEQ = [1, 'fy', ...Object.keys(base).map(Number).sort((a, b) => a - b).slice(1)];
 const registry = {};
-for (const f of parts) Object.assign(registry, require(f));
-const nums = Object.keys(registry).map(Number).sort((a, b) => a - b);
+const pageMap = new Map();
+SEQ.forEach((key, i) => { registry[key] = key === 'fy' ? fySlide : base[key]; pageMap.set(key, i + 1); });
+const nums = SEQ;
 
 const which = process.argv[2] || 'all';
 const outDir = path.join(__dirname, 'out');
@@ -23,6 +28,7 @@ for (const themeKey of which === 'all' ? ['classic', '3d'] : [which]) {
     L.setEmitter((op) => ops.push(op));
     L.setClip(null);
     const c = L.createCanvas(L.W, L.H);
+    L.setLight(!!th.light); L.setPageMap(pageMap);
     try {
       registry[n](c.getContext('2d'), th);
     } catch (e) {

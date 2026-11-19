@@ -8,9 +8,18 @@ const { THEMES, PDFDocument, createCanvas } = L;
 L.registerFonts();
 
 const parts = [1, 2, 3, 4, 5].map((n) => path.join(__dirname, `slides-${n}.js`)).filter((f) => fs.existsSync(f));
+const base = {};
+for (const f of parts) Object.assign(base, require(f));
+const fySlide = require('./slides-fy.js').fy;
+// порядок: обложка → сводные результаты FY → остальные слайды
+const SEQ = [1, 'fy', ...Object.keys(base).map(Number).sort((a, b) => a - b).slice(1)];
 const registry = {};
-for (const f of parts) Object.assign(registry, require(f));
-const slideNums = Object.keys(registry).map(Number).sort((a, b) => a - b);
+const pageMap = new Map();  // ключ слайда → номер, который печатается на слайде
+SEQ.forEach((key, i) => {
+  registry[key] = key === 'fy' ? fySlide : base[key];
+  pageMap.set(key, i + 1);
+});
+const slideNums = SEQ;
 
 function render(themeKey, opts = {}) {
   const th = THEMES[themeKey];
@@ -22,8 +31,10 @@ function render(themeKey, opts = {}) {
   });
   const pngDir = opts.pngDir;
   if (pngDir) fs.mkdirSync(pngDir, { recursive: true });
-  for (const n of slideNums) {
+  slideNums.forEach((n, idx) => {
     const ctx = doc.beginPage(L.W, L.H);
+    L.setLight(!!th.light);
+    L.setPageMap(pageMap);
     L.resetBottom();
     try {
       registry[n](ctx, th);
@@ -35,11 +46,13 @@ function render(themeKey, opts = {}) {
     doc.endPage();
     if (pngDir) {
       const c = createCanvas(L.W, L.H);
+      L.setLight(!!th.light);
+      L.setPageMap(pageMap);
       L.resetBottom();
       registry[n](c.getContext('2d'), th);
-      fs.writeFileSync(path.join(pngDir, `s${String(n).padStart(2, '0')}.png`), c.toBuffer('image/png'));
+      fs.writeFileSync(path.join(pngDir, `s${String(idx + 1).padStart(2, '0')}.png`), c.toBuffer('image/png'));
     }
-  }
+  });
   return doc.close();
 }
 

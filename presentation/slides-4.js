@@ -10,6 +10,8 @@ function hbar(ctx, th, x, y, w, h, frac, o = {}) {
   else rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFE39B'], [1, '#E39B00']]), { shadow: { color: 'rgba(255,198,30,0.5)', blur: 10, y: 0 } });
 }
 
+const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
+
 const slides = {};
 
 // ============ 31. Стена · Путь клиента ============
@@ -20,7 +22,7 @@ slides[31] = (ctx, th) => {
     lead: 'Клиент теряется не на полке — он теряется на стыках этапов', titleSize: d ? 24 : 29, gap: 12,
   });
   card(ctx, th, ML, top, CW, H - 46 - top, {});
-  const cols = [180, 108, 300, 268];
+  const cols = [156, 128, 306, 258];
   const xs = [ML + 20, ML + 20 + cols[0] + cols[1], ML + 20 + cols[0] + cols[1] + cols[2]];
   text(ctx, 'ЭТАП', xs[0], top + 30, { size: 8.4, weight: 700, ls: 1, color: th.muted });
   text(ctx, 'БАРЬЕР · ГДЕ ТЕРЯЕМ КЛИЕНТА', xs[1], top + 30, { size: 8.4, weight: 700, ls: 1, color: th.muted });
@@ -40,9 +42,9 @@ slides[31] = (ctx, th) => {
       rr(ctx, xs[0] - 6, y + 8, 3, rh - 16, 1.5, d ? C.yellow : C.yellow);
       text(ctx, 'РАЗРЫВ', xs[0] + 50, y + 20, { size: 7.6, weight: 700, ls: 0.8, color: d ? C.yellow : C.yellowDeep });
     }
-    text(ctx, r[0], xs[0], y + 33, { size: 11.4, weight: 700, color: th.ink });
+    fitText(ctx, r[0], xs[0], y + 33, cols[0] + 8, { size: 11.4, weight: 700, color: th.ink, minSize: 9.2 });
     para(ctx, r[1], xs[1], y + 24, cols[2] - 24, { size: 10.2, lh: 13, color: th.inkSoft, maxLines: 2, page: 31 });
-    para(ctx, r[2], xs[2], y + 24, cols[3] - 12, { size: 10.2, lh: 13, color: d ? '#fff' : C.ink, maxLines: 2, page: 31 });
+    para(ctx, r[2], xs[2], y + 24, ML + CW - 20 - xs[2], { size: 10.2, lh: 13, color: d ? '#fff' : C.ink, maxLines: 2, page: 31 });
     y += rh + 3;
   });
   U.band(ctx, th, ML, y + 6, CW, 56, 'Клиент теряется на трёх стыках: не посчитал расход → не попал в цвет → докупил сопутку в другом месте. Связка «локальная гамма и колеровка в день заказа + сопутка в чеке + бригадиры в зале» даёт +65 млн ₽.', { size: 10.6, maxLines: 2 });
@@ -192,7 +194,8 @@ slides[35] = (ctx, th) => {
     ['4. Доставка и работы', 'Самовывоз или доставка, приёмка, монтаж, гарантия', 'Разные сроки, бой керамогранита, нет единого окна', 'Окно доставки 2 часа, жёсткая упаковка, OTIF-контроль', 'OTIF 88% → 95%; бой при доставке −30%'],
     ['5. Повторная покупка', 'Расширение ремонта, следующий объект, рекомендации', 'Нет системной передачи лида от мастера', 'Рефералка ПРО, Ключ-карта ПРО, B2B-портал, КАМ', '200 мастеров-партнёров; повторные чеки ПРО +8 п.п.'],
   ];
-  card(ctx, th, ML, top, CW, 362 - top, {});
+  // высота карточки — по числу строк, иначе последняя строка выходит за плашку
+  card(ctx, th, ML, top, CW, 40 + rows.length * 53 + 8, {});
   const cw = [126, 146, 180, 190, 166];
   const xs = [ML + 20];
   cw.forEach((w) => xs.push(xs[xs.length - 1] + w));
@@ -368,14 +371,14 @@ slides[39] = (ctx, th) => {
   // ПРО и МП4
   const by = gy + ph + 12;
   const bw = (CW - 12) / 2;
-  card(ctx, th, ML, by, bw, H - 90 - by, { fill: d ? lg(ctx, ML, by, ML, by + 90, [[0, 'rgba(255,198,30,0.12)'], [1, 'rgba(255,198,30,0.02)']]) : C.yellowSoft });
-  text(ctx, 'ПРО · 61,7 → 100 МЛН ₽ В КАНАЛЕ', ML + 18, by + 26, { size: 9.4, weight: 700, ls: 1, color: d ? C.yellow : C.yellowDeep });
-  para(ctx, 'Рост — объекты, мастера-партнёры и дотация на установку за счёт скидки на дверь.', ML + 18, by + 42, bw - 200, { size: 9.6, lh: 11.8, color: th.inkSoft, maxLines: 2, page: 39 });
-  text(ctx, 'profi · +70%', ML + bw - 150, by + 44, { size: 10.4, weight: 700, color: th.ink });
-  text(ctx, '28 → 48', ML + bw - 18, by + 44, { size: 12, weight: 800, color: th.ink, align: 'right' });
-  text(ctx, 'B2B · +59%', ML + bw - 150, by + 64, { size: 10.4, weight: 700, color: th.ink });
-  text(ctx, '32,7 → 52', ML + bw - 18, by + 64, { size: 12, weight: 800, color: th.ink, align: 'right' });
-  card(ctx, th, ML + bw + 12, by, bw, H - 90 - by, {});
+  card(ctx, th, ML, by, bw, H - 80 - by, { fill: d ? lg(ctx, ML, by, ML, by + 90, [[0, 'rgba(255,198,30,0.12)'], [1, 'rgba(255,198,30,0.02)']]) : C.yellowSoft });
+  text(ctx, 'ПРО · 61,7 → 100 МЛН ₽ В КАНАЛЕ', ML + 18, by + 24, { size: 9.4, weight: 700, ls: 1, color: d ? C.yellow : C.yellowDeep });
+  para(ctx, 'Рост — объекты, мастера-партнёры и дотация на установку за счёт скидки на дверь.', ML + 18, by + 36, bw - 200, { size: 9.2, lh: 11, color: th.inkSoft, maxLines: 2, page: 39 });
+  text(ctx, 'profi · +70%', ML + bw - 150, by + 40, { size: 10.4, weight: 700, color: th.ink });
+  text(ctx, '28 → 48', ML + bw - 18, by + 40, { size: 12, weight: 800, color: th.ink, align: 'right' });
+  text(ctx, 'B2B · +59%', ML + bw - 150, by + 58, { size: 10.4, weight: 700, color: th.ink });
+  text(ctx, '32,7 → 52', ML + bw - 18, by + 58, { size: 12, weight: 800, color: th.ink, align: 'right' });
+  card(ctx, th, ML + bw + 12, by, bw, H - 80 - by, {});
   text(ctx, 'МП4 · 76,3 → 180 МЛН ₽ (+89%)', ML + bw + 30, by + 26, { size: 9.4, weight: 700, ls: 1, color: th.muted });
   [['GMV МП4', '76,3 → 180', '+89%'], ['Сделки', '1 654 → 2 800', '+69%'], ['Конверсия', '71 → 75,2%', '+4,2 п.п.'], ['Сделки с услугой', '31 → 40%', '+9 п.п.']].forEach((m, i) => {
     const x = ML + bw + 30 + (i % 2) * ((bw - 60) / 2);

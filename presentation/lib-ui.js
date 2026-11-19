@@ -7,12 +7,26 @@ const gapX = 12;
 
 // ---------- служебное ----------
 function panelHead(ctx, th, x, y, w, label, o = {}) {
+  const txt = label.toUpperCase();
   if (th.dark) {
-    text(ctx, label.toUpperCase(), x, y, { size: o.size || 10, weight: 700, ls: 1.6, color: o.color || th.accent });
+    const size = o.size || 10;
+    const maxW = (w || 1e4) - 14;
+    // подгоняем кегль/разрядку, чтобы длинный заголовок не выходил за панель
+    let sz = size, ls = 1.6;
+    while (sz > 7 && measure(ctx, txt, { size: sz, weight: 700, ls }) > maxW) {
+      sz -= 0.2; ls = Math.max(0.4, ls - 0.1);
+    }
+    text(ctx, txt, x, y, { size: sz, weight: 700, ls, color: o.color || th.accent });
     return y + 14;
   }
   rect(ctx, x, y - 7, 4, 12, th.accent);
-  text(ctx, label.toUpperCase(), x + 11, y, { size: o.size || 10, weight: 700, ls: 1.4, color: o.color || C.inkSoft });
+  const size = o.size || 10;
+  const maxW = (w || 1e4) - 14;
+  let sz = size, ls = 1.4;
+  while (sz > 7 && measure(ctx, txt, { size: sz, weight: 700, ls }) > maxW) {
+    sz -= 0.2; ls = Math.max(0.4, ls - 0.1);
+  }
+  text(ctx, txt, x + 11, y, { size: sz, weight: 700, ls, color: o.color || C.inkSoft });
   return y + 14;
 }
 
@@ -34,6 +48,22 @@ function kpiRow(ctx, th, x, y, w, h, items, o = {}) {
     }
   });
   return y + h;
+}
+
+// Ширина строки так, как её реально нарисует text() (с учётом letterSpacing)
+function textW(ctx, str, o = {}) {
+  return measure(ctx, str, o) + (o.ls ? o.ls * Math.max(0, String(str).length - 1) : 0);
+}
+
+// Строка в две колонки: левая часть не наезжает на правую
+function row2(ctx, th, left, right, x, y, xr, o = {}) {
+  const size = o.size || 10;
+  const gapMin = o.gapMin === undefined ? 16 : o.gapMin;
+  const roomForLeft = xr - x - gapMin;
+  let lsz = size;
+  while (lsz > 7.5 && textW(ctx, left, { size: lsz, weight: o.weight || 400 }) > roomForLeft) lsz -= 0.2;
+  text(ctx, left, x, y, { size: lsz, weight: o.weight || 400, color: o.color || th.inkSoft });
+  text(ctx, right, xr, y, { size: o.sizeR || size, weight: o.weightR || 700, color: o.colorR || th.ink, align: 'right' });
 }
 
 // ---------- Панель с заголовком ----------
@@ -230,5 +260,5 @@ function blockTitle(ctx, th, x, y, w, s, o = {}) {
 
 module.exports = {
   ...L,
-  panelHead, kpiRow, panel, bullets, numGrid, stepsRow, table, chip, progress, bigStat, band, blockTitle, gapX,
+  panelHead, kpiRow, panel, bullets, numGrid, stepsRow, table, chip, progress, bigStat, band, blockTitle, gapX, textW, row2,
 };

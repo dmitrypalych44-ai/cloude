@@ -9,7 +9,30 @@ function hbar(ctx, th, x, y, w, h, frac, o = {}) {
   if (!th.dark) rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFD65C'], [1, '#EFAE00']]));
   else rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFE39B'], [1, '#E39B00']]), { shadow: { color: 'rgba(255,198,30,0.5)', blur: 10, y: 0 } });
 }
-function logo(ctx, d, x, y, w) { drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', x, y, w, w * 359 / 1281); }
+
+// ---------- знак-домик Лемана ПРО ----------
+// В светлой 3D-теме знак рисуется фигурами: он всегда виден и не зависит от темы.
+function houseMark(ctx, x, y, w, o = {}) {
+  const a = C.yellow;
+  const s = w / 100;
+  // пятиугольник дома (100 × 118 пропорции исходного знака)
+  poly(ctx, [[x + 50 * s, y], [x + 100 * s, y + 48 * s], [x + 100 * s, y + 118 * s], [x, y + 118 * s], [x, y + 48 * s]], a, {});
+  // белая «дверь» — тоже пятиугольник, соразмерно
+  poly(ctx, [[x + 50 * s, y + 40 * s], [x + 74 * s, y + 63 * s], [x + 74 * s, y + 100 * s], [x + 26 * s, y + 100 * s], [x + 26 * s, y + 63 * s]],
+    o.door || '#FFFFFF', {});
+}
+
+function logo(ctx, d, x, y, w) {
+  if (TH_LIGHT && d) {
+    // светлая 3D-сцена: жёлтый домик + тёмный логотип-надпись
+    const lh = w * 359 / 1281;              // высота логотипа как в исходной картинке
+    const hh = lh * 0.98, hw = hh / 1.18;   // домик по высоте логотипа
+    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: '#F3F0E9' });
+    drawImg(ctx, 'wordmark-dark.png', x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
+    return;
+  }
+  drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', x, y, w, w * 359 / 1281);
+}
 
 // разделитель
 function divider(ctx, th, img, kicker, title, sub, num, o = {}) {
@@ -26,17 +49,21 @@ function divider(ctx, th, img, kicker, title, sub, num, o = {}) {
     const tl = wrap(ctx, title, 380, { size: 34, weight: 800, ls: -1 });
     tl.forEach((l, i) => text(ctx, l, ML, 282 + i * 42, { size: 34, weight: 800, color: C.ink, ls: -1 }));
     if (sub) text(ctx, sub, ML, 282 + tl.length * 42 + 22, { size: 12.5, color: C.muted });
-    text(ctx, String(num), W - 40, H - 22, { size: 10, color: '#8D8779', align: 'right' });
+    text(ctx, String(U.pageNum(num)), W - 40, H - 22, { size: 10, color: '#8D8779', align: 'right' });
   } else {
     drawImg(ctx, img, 500, 26, 460, 488, { clip: 'round', r: 22, overlay: 'rgba(8,10,14,0.42)' });
     rr(ctx, 500, 26, 460, 488, 22, null, { stroke: 'rgba(255,198,30,0.35)', strokeW: 1.2 });
     logo(ctx, d, ML, 40, 108);
     text(ctx, kicker.toUpperCase(), ML, 240, { size: 11, weight: 700, ls: 2.4, color: C.yellow });
-    text(ctx, title, ML, 300, { size: 34, weight: 800, fam: 'u', color: '#fff', ls: -1 });
-    if (sub) text(ctx, sub, ML, 340, { size: 12.5, color: 'rgba(255,255,255,0.6)' });
-    text(ctx, String(num), W - 44, H - 24, { size: 10, color: 'rgba(255,255,255,0.4)', align: 'right' });
+    // заголовок умещаем в левую колонку (фото начинается с x=500)
+    const tl = wrap(ctx, title, 400, { size: 34, weight: 800, fam: 'u', ls: -1 });
+    tl.forEach((l, i) => fitText(ctx, l, ML, 300 + i * 40, 400, { size: 34, weight: 800, fam: 'u', color: '#fff', ls: -1, minSize: 22 }));
+    if (sub) text(ctx, sub, ML, 300 + tl.length * 40 + 14, { size: 12.5, color: 'rgba(255,255,255,0.6)' });
+    text(ctx, String(U.pageNum(num)), W - 44, H - 24, { size: 10, color: 'rgba(255,255,255,0.4)', align: 'right' });
   }
 }
+
+const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
 
 const slides = {};
 
@@ -354,7 +381,7 @@ slides[29] = (ctx, th) => {
     if (!d) { rr(ctx, ML, y, 32, 54, 0, C.dark); rect(ctx, ML, y, 3, 54, C.yellow); text(ctx, it.n, ML + 18, y + 31, { size: 10.5, weight: 700, color: '#fff', align: 'center' }); }
     else { rr(ctx, ML + 8, y + 13, 28, 28, 7, lg(ctx, ML, y, ML + 36, y + 54, [[0, '#FFD75E'], [1, '#DF9A00']])); text(ctx, it.n, ML + 22, y + 32, { size: 10.5, weight: 800, color: '#241C00', align: 'center' }); }
     text(ctx, it.t, ML + 46, y + 24, { size: 12, weight: 700, color: th.ink });
-    para(ctx, it.x, ML + 46, y + 40, CW - 480, { size: 9.8, lh: 12, color: th.inkSoft, maxLines: 2, page: 29, minSize: 8.8 });
+    para(ctx, it.x, ML + 46, y + 37, CW - 480, { size: 9.6, lh: 11.4, color: th.inkSoft, maxLines: 2, page: 29, minSize: 8.6 });
     U.chip(ctx, th, W - MR - 250, y + 17, it.q, { size: 9 });
     text(ctx, it.e, W - MR - 18, y + 31, { size: 11.6, weight: 800, color: d ? C.yellow : C.ink, align: 'right' });
   });

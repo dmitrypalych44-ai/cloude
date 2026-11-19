@@ -10,12 +10,35 @@ function hbar(ctx, th, x, y, w, h, frac, o = {}) {
   else rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFE39B'], [1, '#E39B00']]), { shadow: { color: 'rgba(255,198,30,0.5)', blur: 10, y: 0 } });
 }
 
+
+// ---------- знак-домик Лемана ПРО ----------
+// В светлой 3D-теме знак рисуется фигурами: он всегда виден и не зависит от темы.
+function houseMark(ctx, x, y, w, o = {}) {
+  const a = C.yellow;
+  const s = w / 100;
+  // пятиугольник дома (100 × 118 пропорции исходного знака)
+  poly(ctx, [[x + 50 * s, y], [x + 100 * s, y + 48 * s], [x + 100 * s, y + 118 * s], [x, y + 118 * s], [x, y + 48 * s]], a, {});
+  // белая «дверь» — тоже пятиугольник, соразмерно
+  poly(ctx, [[x + 50 * s, y + 40 * s], [x + 74 * s, y + 63 * s], [x + 74 * s, y + 100 * s], [x + 26 * s, y + 100 * s], [x + 26 * s, y + 63 * s]],
+    o.door || '#FFFFFF', {});
+}
+
 function logo(ctx, dOrX, x, y, w) {
   // поддержка вызова logo(ctx, x, y, w) и logo(ctx, d, x, y, w)
   let d = false, X = dOrX, Y = x, Wd = y;
   if (typeof dOrX === 'boolean') { d = dOrX; X = x; Y = y; Wd = w; }
+  if (TH_LIGHT && d) {
+    // светлая 3D-сцена: жёлтый домик + тёмный логотип-надпись
+    const lh = w * 359 / 1281;              // высота логотипа как в исходной картинке
+    const hh = lh * 0.98, hw = hh / 1.18;   // домик по высоте логотипа
+    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: '#F3F0E9' });
+    drawImg(ctx, 'wordmark-dark.png', x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
+    return;
+  }
   U.drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', X, Y, Wd, Wd * 359 / 1281);
 }
+
+const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
 
 const slides = {};
 
@@ -32,7 +55,7 @@ slides[1] = (ctx, th) => {
     rect(ctx, 468, 0, 2, H, C.paper);
     logo(ctx, false, 56, 34, 104);
     rect(ctx, 56, 196, 96, 4, C.yellow);
-    text(ctx, 'ВЛАДИВОСТОК', 56, 292, { size: 66, weight: 800, color: C.ink, ls: -1.6 });
+    fitText(ctx, 'ВЛАДИВОСТОК', 56, 292, 408, { size: 66, weight: 800, color: C.ink, ls: -1.6, minSize: 30 });
     text(ctx, 'СТРАТЕГИЯ 2027', 58, 342, { size: 25, weight: 600, color: C.inkSoft, ls: 4.2 });
     line(ctx, 58, 382, 400, 382, C.line2, 1);
     para(ctx, 'Шесть стратегических миров, четыре рычага роста и один путь клиента: от рынка агломерации до проектного центра.', 58, 412, 356, { size: 14.5, lh: 21, color: C.inkSoft, page: 1 });
@@ -46,8 +69,8 @@ slides[1] = (ctx, th) => {
     poly(ctx, [[ix + iw - 4, iy + 4], [ix + iw - 4, iy + 96], [ix + iw - 96, iy + 4]], C.yellow);
     logo(ctx, true, ML, 40, 96);
     rect(ctx, ML, 176, 64, 3, C.yellow);
-    text(ctx, 'ВЛАДИВОСТОК', ML, 268, { size: 47, weight: 800, fam: 'u', color: '#fff', ls: -1.4 });
-    text(ctx, 'СТРАТЕГИЯ 2027', ML + 2, 314, { size: 21, weight: 600, fam: 'u', color: C.yellow, ls: 5 });
+    fitText(ctx, 'ВЛАДИВОСТОК', ML, 268, 420, { size: 47, weight: 800, fam: 'u', color: '#fff', ls: -1.4, minSize: 30 });
+    fitText(ctx, 'СТРАТЕГИЯ 2027', ML + 2, 314, 400, { size: 21, weight: 600, fam: 'u', color: C.yellow, ls: 5, minSize: 14 });
     line(ctx, ML, 352, 372, 352, 'rgba(255,255,255,0.18)', 1);
     para(ctx, 'Шесть стратегических миров, четыре рычага роста и один путь клиента: от рынка агломерации до проектного центра.', ML, 386, 372, { size: 15.5, lh: 23, color: 'rgba(255,255,255,0.82)', page: 1 });
     text(ctx, 'Л Е М А Н А  П Р О   ·   М А Г А З И Н 7 5', ML, 492, { size: 10.5, weight: 700, color: 'rgba(255,255,255,0.5)', ls: 1.4 });
@@ -93,14 +116,14 @@ slides[2] = (ctx, th) => {
   }
   // центральная колонка — рынок и доля
   const mx = lx + lw + 14, mw = 232;
-  card(ctx, th, mx, ly, mw, 172, { fill: d ? undefined : C.yellowSoft, topAccent: d ? null : C.yellow });
+  card(ctx, th, mx, ly, mw, 178, { fill: d ? undefined : C.yellowSoft, topAccent: d ? null : C.yellow });
   text(ctx, 'РЫНОК И ДОЛЯ', mx + 18, ly + 30, { size: 9.5, weight: 700, ls: 1.4, color: d ? C.yellow : C.yellowDeep });
   text(ctx, 'Объём рынка B2C', mx + 18, ly + 52, { size: 10, color: d ? 'rgba(255,255,255,0.55)' : C.muted });
   fitText(ctx, '29,3 млрд ₽', mx + 18, ly + 84, mw - 36, { size: 28, weight: 800, color: d ? '#fff' : C.ink, ls: -1 });
   para(ctx, 'Владивосток и Артём — растущий рынок новосёлов', mx + 18, ly + 104, mw - 36, { size: 9.8, lh: 12.5, color: d ? 'rgba(255,255,255,0.6)' : C.muted, maxLines: 2, page: 2 });
-  text(ctx, 'Доля Лемана ПРО сегодня', mx + 18, ly + 141, { size: 10, color: d ? 'rgba(255,255,255,0.55)' : C.muted });
-  text(ctx, '20%', mx + 18, ly + 164, { size: 22, weight: 800, color: d ? C.yellow : C.ink });
-  para(ctx, 'цель — рост за счёт ПРО и ЖК', mx + 74, ly + 158, mw - 96, { size: 9.5, lh: 11.5, color: d ? 'rgba(255,255,255,0.6)' : C.muted, maxLines: 2, page: 2 });
+  text(ctx, 'Доля Лемана ПРО сегодня', mx + 18, ly + 140, { size: 10, color: d ? 'rgba(255,255,255,0.55)' : C.muted });
+  text(ctx, '20%', mx + 18, ly + 166, { size: 22, weight: 800, color: d ? C.yellow : C.ink });
+  fitText(ctx, 'цель — рост за счёт ПРО и ЖК', mx + 72, ly + 165, mw - 90, { size: 9, color: d ? 'rgba(255,255,255,0.6)' : C.muted, minSize: 7.6 });
   // МКД / ИЖС
   const rows = [['МКД', '1 016', 'тыс. м² · 50% зоны', '251 МКД до 2030'], ['ИЖС', '1 000', 'тыс. м² · 25% зоны', '≈ 9 000 домов']];
   rows.forEach((r, i) => {
@@ -237,7 +260,7 @@ slides[4] = (ctx, th) => {
   ];
   U.stepsRow(ctx, th, ML, top, CW, 72, stages, { gap: 7, size: 9.6 });
   const gy = top + 88;
-  const cw = (CW - 20) / 2, chh = 116;
+  const cw = (CW - 20) / 2, chh = 124;
   const blocks = [
     { t: 'ДОСТУПНОСТЬ ТОВАРА', sub: 'Сток в магазине + СК Хабаровск', lead: 'Доступность товара для клиента по факту, а не на бумаге 98%', m: ['Гамма А, А0, АС – 95% присутствие', 'Присутствие НК 95%+', 'Доля 20/80 – 48%, Best Seller – 15%+'], hot: false },
     { t: 'ИСПОЛНЕНИЕ ЗАКАЗОВ КЛИЕНТОВ', sub: 'Оффер, сервис, ДС за 3 дня', lead: 'Трансформация логистики. Акция для новосёлов: охват ЖК до 20', m: ['CSAT с 4,64 до 4,85', 'OTIF с 83% до 90%', 'Доля КЗ с 43% до 50%'], hot: false },
@@ -247,10 +270,10 @@ slides[4] = (ctx, th) => {
   blocks.forEach((b, i) => {
     const x = ML + (i % 2) * (cw + 20), y = gy + Math.floor(i / 2) * (chh + 16);
     card(ctx, th, x, y, cw, chh, { fill: b.hot && !d ? '#FDF6E2' : (d && b.hot ? lg(ctx, x, y, x, y + chh, [[0, 'rgba(255,198,30,0.14)'], [1, 'rgba(255,198,30,0.03)']]) : undefined), topAccent: b.hot ? C.yellow : (d ? null : null) });
-    text(ctx, b.t, x + 18, y + 26, { size: 11.6, weight: 700, color: th.ink, ls: 0.2 });
-    text(ctx, b.sub, x + 18, y + 43, { size: 9.6, color: th.muted });
-    text(ctx, b.lead, x + 18, y + 61, { size: 10.4, weight: 600, color: d ? '#fff' : C.ink });
-    let my = y + 78;
+    text(ctx, b.t, x + 18, y + 24, { size: 11.6, weight: 700, color: th.ink, ls: 0.2 });
+    text(ctx, b.sub, x + 18, y + 40, { size: 9.6, color: th.muted });
+    text(ctx, b.lead, x + 18, y + 58, { size: 10.4, weight: 600, color: d ? '#fff' : C.ink });
+    let my = y + 74;
     b.m.forEach((m) => {
       rect(ctx, x + 18, my - 4, 8, 2, d ? C.yellow : C.yellowDeep);
       my += para(ctx, m, x + 32, my, cw - 50, { size: 9.6, lh: 12, color: th.inkSoft, maxLines: 1, page: 4 }) + 2;
@@ -490,7 +513,7 @@ slides[9] = (ctx, th) => {
       text(ctx, it.n, x + 32, y + 37, { size: 10.5, weight: 800, color: '#241C00', align: 'center' });
     }
     fitText(ctx, it.title, x + 54, y + 36, cw - 72, { size: 12, weight: 700, color: th.ink, minSize: 9.5 });
-    para(ctx, it.text, x + 18, y + 62, cw - 36, { size: 10.2, lh: 13, color: th.inkSoft, maxLines: 3, page: 9 });
+    para(ctx, it.text, x + 18, y + 62, cw - 36, { size: 10.2, lh: 13, color: th.inkSoft, maxLines: 2, page: 9 });
     U.chip(ctx, th, x + 18, y + chh - 30, it.tag, { size: 8.8 });
     text(ctx, it.val, x + cw - 18, y + chh - 17, { size: 11.5, weight: 800, color: d ? C.yellow : C.ink, align: 'right' });
   });
@@ -501,9 +524,10 @@ slides[9] = (ctx, th) => {
   const plan = [['ФЕВРАЛЬ', 'Открытие ПЦ', '5 миров, 8 АРМ и 2 дизайнера'], ['МАРТ–ИЮНЬ', 'Ramp-up', '40% → 100% мощности'], ['ИЮЛЬ', '100% и окупаемость', '508 прорисовок в месяц'], ['УСПЕХ', 'Три условия', 'поток · каннибализация · контроль']];
   plan.forEach((p, i) => {
     const x = ML + 20 + i * ((CW - 40) / 4);
+    const colW = (CW - 40) / 4 - 26;
     text(ctx, p[0], x, by + 44, { size: 8.8, weight: 700, ls: 1.1, color: th.muted });
-    text(ctx, p[1], x, by + 61, { size: 11.6, weight: 700, color: th.ink });
-    para(ctx, p[2], x, by + 76, (CW - 40) / 4 - 20, { size: 9.2, lh: 11.2, color: th.inkSoft, maxLines: 1, page: 9 });
+    fitText(ctx, p[1], x, by + 61, colW, { size: 11.6, weight: 700, color: th.ink, minSize: 9.4 });
+    para(ctx, p[2], x, by + 76, colW, { size: 9.2, lh: 11.2, color: th.inkSoft, maxLines: 1, page: 9 });
   });
   U.footer(ctx, th, 'Три условия успеха: поток 508 прорисовок/мес (47% потока магазина) · каннибализация ≤ 15% (при 15% ПЦ теряет 17,2 млн ₽ маржи магазина — учтено) · еженедельный операционный контроль факта, конверсии и чека.', 9);
 };
@@ -541,7 +565,15 @@ slides[10] = (ctx, th) => {
       text(ctx, f[0], ML + 30, fy + 13, { size: 9.2, weight: 600, color: f[3] === 0.48 ? '#241C00' : '#fff' });
       text(ctx, f[1], ML + 30, fy + 26, { size: 11.6, weight: 800, color: f[3] === 0.48 ? '#241C00' : '#fff' });
     }
-    text(ctx, f[2], ML + lw - 20, fy + 21, { size: 9.2, color: th.muted, align: 'right' });
+    // подпись доли — внутри своей полосы справа, если влезает, иначе справа от неё
+    {
+      const lbl = f[2];
+      const inside = bw - 76;
+      const tw = U.textW(ctx, lbl, { size: 9.2 });
+      const col = f[3] === 0.48 ? '#241C00' : (d ? 'rgba(255,255,255,0.85)' : '#fff');
+      if (tw <= inside) text(ctx, lbl, ML + 20 + bw - 10, fy + 21, { size: 9.2, color: col, align: 'right' });
+      else text(ctx, lbl, ML + 20 + bw + 8, fy + 21, { size: 8.8, color: th.muted });
+    }
     fy += 36;
   });
   // GMV
@@ -549,11 +581,11 @@ slides[10] = (ctx, th) => {
   card(ctx, th, mx, gy, mw, ph, {});
   U.panelHead(ctx, th, mx + 18, gy + 30, mw - 36, 'GMV новосёлов, млн ₽');
   const gmv = [['1 203,4', 'новосёлы'], ['318,6', 'сделки'], ['134,6', 'карты лояльности']];
-  let my = gy + 50;
+  let my = gy + 52;
   gmv.forEach((g) => {
-    text(ctx, g[0], mx + 18, my + 20, { size: 24, weight: 800, color: th.ink, ls: -0.8 });
-    text(ctx, g[1], mx + 18, my + 34, { size: 9.6, color: th.muted });
-    my += 39;
+    text(ctx, g[0], mx + 18, my + 18, { size: 23, weight: 800, color: th.ink, ls: -0.8 });
+    text(ctx, g[1], mx + 18, my + 31, { size: 9.4, color: th.muted });
+    my += 38;
   });
   // демарш
   const rx = mx + mw + 14, rw = W - MR - rx;
