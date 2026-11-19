@@ -2,7 +2,7 @@
 // Слайд «Сводные результаты · FY24 — FY26» (по макету заказчика)
 const U = require('./lib-ui');
 const { C, W, H, ML, MR, CW, text, para, wrap, measure, fitText, rr, rect, circle, line, poly, lg, rg, card, bg, drawImg } = U;
-const TH_LIGHT = !!U.THEMES['3d'].light;
+const TH_LIGHT = () => !!U.THEMES['3d'].light;
 
 // эталон: 1240 × 700 pt из макета → коэффициенты пересчёта в 960 × 540
 const KX = W / 1240, KY = H / 700;
@@ -26,7 +26,7 @@ const KPIS = [
 function slide(ctx, th) {
   const d = th.dark;
   bg(ctx, th);
-  if (th.light) U.cornerMark(ctx, th);
+  U.cornerMark(ctx, th);
 
   // ---- заголовок
   text(ctx, 'СВОДНЫЕ РЕЗУЛЬТАТЫ · FY24 — FY26', ML, 64, { size: 24, weight: 800, fam: th.light ? 'u' : 'o', color: th.ink, ls: -0.5 });
@@ -55,7 +55,7 @@ function slide(ctx, th) {
   const LEFT = ML + 14;
   const rowH = 26;
   // шапка
-  rr(ctx, ML, ty, CW, 26, th.light ? 3 : 8, th.light ? '#2B2D31' : '#1D222A');
+  rr(ctx, ML, ty, CW, 26, th.light ? 3 : 8, U.preset().tableHead);
   const head = ['Сценарий', 'Оборот 4Р с НДС, млрд ₽', 'г-1', 'GMV с НДС, млрд ₽', 'г-1', 'РХД, млрд ₽', 'г-1', 'РХД / GMV'];
   head.forEach((h, i) => {
     const o = { size: 8.4, weight: 700, color: '#FFFFFF', ls: 0.1, raw: true };
@@ -65,7 +65,7 @@ function slide(ctx, th) {
   // строки
   DATA.forEach((r, i) => {
     const y = ty + 26 + i * rowH;
-    if (i % 2 === 0) rr(ctx, ML, y, CW, rowH, 0, th.light ? '#E9E4D9' : 'rgba(0,0,0,0.045)');
+    if (i % 2 === 0) rr(ctx, ML, y, CW, rowH, 0, U.preset().zebra);
     if (r.hot || r.goal) rect(ctx, ML, y, 3, rowH, r.goal ? C.yellowDeep : C.yellow);
     text(ctx, r.name, LEFT, y + rowH / 2 + 4, { size: 10.4, weight: 700, color: th.ink });
     const cell = (v, ci, weight, color) =>

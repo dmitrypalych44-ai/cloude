@@ -22,6 +22,9 @@ SEQ.forEach((key, i) => {
 const slideNums = SEQ;
 
 function render(themeKey, opts = {}) {
+  // «3d-<preset>» — 3D-дизайн в одной из цветовых схем (graphite | yellow | white)
+  const m = String(themeKey).match(/^3d-(graphite|yellow|white)$/);
+  L.setPreset(m ? m[1] : 'white');
   const th = THEMES[themeKey];
   const doc = new PDFDocument({
     title: 'Стратегия Владивосток 2027 — Лемана ПРО',
@@ -60,11 +63,12 @@ const which = process.argv[2] || 'all';
 const outDir = path.join(__dirname, 'out');
 fs.mkdirSync(outDir, { recursive: true });
 
-const themes = which === 'all' ? ['classic', '3d'] : [which];
+const PRESET_NAMES = ['graphite', 'yellow', 'white'];
+const themes = which === 'all' ? ['classic', '3d', ...PRESET_NAMES.map((p) => `3d-${p}`)] : [which];
 for (const t of themes) {
   const pngDir = process.argv.includes('--png') ? path.join(outDir, `png-${t}`) : null;
   const buf = render(t, { pngDir });
-  const file = path.join(outDir, t === '3d' ? 'strategiya-2027-3d.pdf' : 'strategiya-2027-classic.pdf');
+  const file = path.join(outDir, `strategiya-2027-${t}.pdf`);
   fs.writeFileSync(file, buf);
   console.log(`${t}: ${slideNums.length} слайдов → ${file} (${(buf.length / 1024).toFixed(0)} КБ)`);
 }

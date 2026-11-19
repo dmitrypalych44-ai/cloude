@@ -20,7 +20,10 @@ const which = process.argv[2] || 'all';
 const outDir = path.join(__dirname, 'out');
 fs.mkdirSync(outDir, { recursive: true });
 
-for (const themeKey of which === 'all' ? ['classic', '3d'] : [which]) {
+const ALL = ['classic', '3d-graphite', '3d-yellow', '3d-white'];
+for (const themeKey of which === 'all' ? ALL : [which]) {
+  const m = String(themeKey).match(/^3d-(graphite|yellow|white)$/);
+  if (m) L.setPreset(m[1]);
   const th = L.THEMES[themeKey];
   const slides = [];
   for (const n of nums) {

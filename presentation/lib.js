@@ -103,6 +103,72 @@ const THEMES = {
   },
 };
 
+
+// ---------- цветовые схемы светлой 3D-сцены ----------
+// Один и тот же 3D-дизайн в трёх цветах: графит (тёмная сцена), жёлтая и белая.
+// Схема задаётся переменной окружения PRESET при сборке.
+const PRESETS = {
+  graphite: {
+    key: 'graphite', light: false,                        // тёмная сцена, не перекрашиваем
+    theme: {
+      bg: '#1F2124', ink: '#FFFFFF', inkSoft: 'rgba(255,255,255,0.80)', muted: 'rgba(255,255,255,0.58)', faint: 'rgba(255,255,255,0.42)',
+      accent: '#FFC61E', accentDeep: '#E8A800', accentSoft: 'rgba(255,198,30,0.14)',
+      card: '#2A2D31', cardEdge: 'rgba(255,255,255,0.10)', cardAlt: '#26292D',
+      titleFam: 'u', titleW: 800, titleSize: 27,
+      kicker: '#FFC61E', lead: 'rgba(255,255,255,0.74)', foot: 'rgba(255,255,255,0.44)', rule: 'rgba(255,255,255,0.14)',
+      shadow: { color: 'rgba(0,0,0,0.55)', blur: 30, y: 14 },
+      shadowSoft: { color: 'rgba(0,0,0,0.38)', blur: 18, y: 8 },
+      radius: 18,
+    },
+    bg: '#1F2124', glow: 'rgba(255,198,30,0.16)', glow2: 'rgba(255,255,255,0.07)',
+    stripe: 'rgba(255,255,255,0.045)', door: '#1F2124', wordmark: 'wordmark-light.png', tableHead: '#111315', zebra: 'rgba(255,255,255,0.05)',
+  },
+  yellow: {
+    key: 'yellow', light: true,
+    theme: {
+      bg: '#FFF3D4', ink: '#1F1A0E', inkSoft: 'rgba(31,26,14,0.80)', muted: 'rgba(34,28,12,0.62)', faint: 'rgba(34,28,12,0.46)',
+      accent: '#FFC61E', accentDeep: '#B07A00', accentSoft: '#FFE9A8',
+      card: '#FFFFFF', cardEdge: 'rgba(120,86,0,0.16)', cardAlt: '#FFF8E4',
+      titleFam: 'u', titleW: 800, titleSize: 27,
+      kicker: '#9C6B00', lead: 'rgba(31,26,14,0.78)', foot: 'rgba(34,28,12,0.52)', rule: 'rgba(120,86,0,0.20)',
+      shadow: { color: 'rgba(120,86,0,0.22)', blur: 28, y: 12 },
+      shadowSoft: { color: 'rgba(120,86,0,0.15)', blur: 16, y: 6 },
+      radius: 18,
+    },
+    bg: '#FFF3D4', glow: 'rgba(255,198,30,0.55)', glow2: 'rgba(255,255,255,0.9)',
+    stripe: 'rgba(160,112,0,0.09)', door: '#FFF3D4', wordmark: 'wordmark-dark.png', tableHead: '#2B2D31', zebra: '#FBEFCC',
+  },
+  white: {
+    key: 'white', light: true,
+    theme: {
+      bg: '#F1F1ED', ink: '#16181B', inkSoft: 'rgba(20,23,27,0.80)', muted: 'rgba(22,25,29,0.60)', faint: 'rgba(22,25,29,0.44)',
+      accent: '#FFC61E', accentDeep: '#B07A00', accentSoft: '#FFF6DA',
+      card: '#FFFFFF', cardEdge: 'rgba(22,25,29,0.12)', cardAlt: '#F8F8F5',
+      titleFam: 'u', titleW: 800, titleSize: 27,
+      kicker: '#8A8C86', lead: 'rgba(20,23,27,0.76)', foot: 'rgba(22,25,29,0.52)', rule: 'rgba(22,25,29,0.12)',
+      shadow: { color: 'rgba(22,25,29,0.14)', blur: 30, y: 12 },
+      shadowSoft: { color: 'rgba(22,25,29,0.09)', blur: 18, y: 6 },
+      radius: 18,
+    },
+    bg: '#F1F1ED', glow: 'rgba(255,198,30,0.22)', glow2: 'rgba(255,255,255,0.95)',
+    stripe: 'rgba(22,25,29,0.04)', door: '#F1F1ED', wordmark: 'wordmark-dark.png', tableHead: '#1F2124', zebra: '#E9E9E3',
+  },
+};
+let PRESET = 'white';
+const PRESET_KEYS = Object.keys(PRESETS);
+// тема «3d» = 3D-дизайн, цвет берётся из активной схемы
+for (const k of PRESET_KEYS) {
+  const P = PRESETS[k];
+  THEMES[`3d-${k}`] = { ...THEMES['3d'], ...P.theme, key: `3d-${k}`, dark: true, light: !!P.light, preset: k };
+  THEMES[k] = THEMES[`3d-${k}`];
+}
+function setPreset(k) {
+  PRESET = PRESETS[k] ? k : 'white';
+  THEMES['3d'] = { ...THEMES['3d'], ...PRESETS[PRESET].theme, key: '3d', light: !!PRESETS[PRESET].light, preset: PRESET };
+  return THEMES['3d'];
+}
+function preset() { return PRESETS[PRESET]; }
+
 // ---------- перевод «тёмного» дизайна в светлый ----------
 // Слайды 3D-темы написаны под тёмную сцену. Чтобы получить тот же 3D-рисунок,
 // но светлым, цвета не переписываем в 49 файлах, а переводим в момент рисования.
@@ -119,8 +185,14 @@ const LIGHT_MAP = {
   '#FFD75E': '#FFD75E', '#DF9A00': '#C98A00', '#FFE39B': '#FFE9B8', '#E39B00': '#C98A00',
 };
 function mcFill(c) {
-  // белые заливки (текст на тёмных плашках, «стекло») в светлой теме не трогаем
+  // белые заливки (текст на тёмных плашках, «стекло») не трогаем
   if (!LIGHT || typeof c !== 'string' || /^#(fff|ffffff)$/i.test(c)) return c;
+  const P = PRESETS[PRESET];
+  if (/^#F3F0E9$/i.test(c)) return P.bg;                     // фон сцены
+  if (/^#(232932|2B323C|2A313B|26282B)$/i.test(c)) return P.theme.card;  // «стеклянные» карточки
+  if (/^#(1B2028|1A1F26|191D25|12151B|0C0E13|11141A|3C3F43|33363A|2B2D31)$/i.test(c)) return P.theme.cardAlt;
+  if (/^#(FFF4D4|FDF6E2|FBF3DC|FFF3CF|FFF9EC|FBF7EC)$/i.test(c)) return P.theme.accentSoft;   // «жёлтые» подложки
+  if (/^#(F8F5ED|FBF8F3|F6F3EC|F3EEE4|F7F3EB|F7F4ED|F2EEE6|EDE7DC|FFFDF8|E7E2D8)$/i.test(c)) return P.theme.cardAlt;
   const hit = LIGHT_MAP[c] || LIGHT_MAP[c.toUpperCase()];
   if (hit) return hit;
   const m = c.match(/^rgba\(255,255,255,([0-9.]+)\)$/);
@@ -131,8 +203,10 @@ function mcFill(c) {
 }
 function mcText(c) {
   if (!LIGHT || typeof c !== 'string') return c;
+  const P = PRESETS[PRESET];
   const hit = LIGHT_MAP[c] || LIGHT_MAP[c.toUpperCase()];
-  if (hit) return hit === '#FFFFFF' ? '#1F2124' : hit;
+  if (hit === '#FFFFFF') return P.theme.ink;
+  if (hit) return hit;
   const m = c.match(/^rgba\(255,255,255,([0-9.]+)\)$/);
   if (m) {
     const a = +m[1];
@@ -336,14 +410,22 @@ function drawImg(ctx, rel, x, y, w, h, o = {}) {
   return img;
 }
 
+function rawRG(ctx, x0, y0, r0, x1, y1, r1, stops) {
+  const g = ctx.createRadialGradient(x0, y0, r0, x1, y1, r1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+
 // ---------- фоны ----------
 function bgClassic(ctx, th) {
   emit({ op: 'bg', kind: 'paper', color: th.bg });
   ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
 }
 function bg3d(ctx) {
+  const P = PRESETS[PRESET];
+  if (P.light) { bg3dLight(ctx); return; }
   emit({ op: 'bg', kind: 'dark' });
-  ctx.fillStyle = lg(ctx, 0, 0, W * 0.6, H, [[0, '#191D25'], [0.55, '#12151B'], [1, '#0C0E13']]);
+  ctx.fillStyle = lg(ctx, 0, 0, W * 0.6, H, [[0, '#26292E'], [0.55, '#1D2024'], [1, '#15171A']]);
   ctx.fillRect(0, 0, W, H);
   // верхний свет
   ctx.fillStyle = rg(ctx, W * 0.78, -60, 20, W * 0.78, -60, 520, [[0, 'rgba(255,198,30,0.20)'], [1, 'rgba(255,198,30,0)']]);
@@ -365,15 +447,16 @@ function bg3d(ctx) {
 // Светлая «объёмная» сцена: тёплая бумага, мягкое жёлтое свечение сверху,
 // лёгкий наклонный ритм полос — тот же 3D-характер, но без тёмного фона.
 function bg3dLight(ctx) {
-  emit({ op: 'bg', kind: 'paper', color: '#F3F0E9' });
-  ctx.fillStyle = '#F3F0E9'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = rg(ctx, W * 0.80, -70, 20, W * 0.80, -70, 520, [[0, 'rgba(255,198,30,0.26)'], [1, 'rgba(255,198,30,0)']]);
+  const P = PRESETS[PRESET];
+  emit({ op: 'bg', kind: 'paper', color: P.bg });
+  ctx.fillStyle = P.bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = rawRG(ctx, W * 0.80, -70, 20, W * 0.80, -70, 520, [[0, P.glow], [1, 'rgba(255,198,30,0)']]);
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = rg(ctx, W * 0.05, H * 0.95, 20, W * 0.05, H * 0.95, 420, [[0, 'rgba(255,255,255,0.85)'], [1, 'rgba(255,255,255,0)']]);
+  ctx.fillStyle = rawRG(ctx, W * 0.05, H * 0.95, 20, W * 0.05, H * 0.95, 420, [[0, P.glow2], [1, 'rgba(255,255,255,0)']]);
   ctx.fillRect(0, 0, W, H);
   // тонкие диагональные линии «объёмной сцены»
   ctx.save();
-  ctx.strokeStyle = 'rgba(38,33,22,0.05)'; ctx.lineWidth = 11;
+  ctx.strokeStyle = P.stripe; ctx.lineWidth = 11;
   for (let i = 0; i < 9; i++) {
     const x = -120 + i * 150;
     ctx.beginPath(); ctx.moveTo(x, -40); ctx.lineTo(x + 300, H + 40); ctx.stroke();
@@ -395,7 +478,7 @@ function card(ctx, th, x, y, w, h, o = {}) {
     }
   } else {
     // в светлой 3D-сцене тёмные поверхности становятся светлыми (красим по LIGHT_MAP)
-    const glass = th.light ? [[0, '#2B323C'], [1, '#1B2028']] : [[0, '#2B323C'], [1, '#1B2028']];
+    const glass = [[0, '#2B323C'], [1, '#1B2028']];
     const fill = o.fill || lg(ctx, x, y, x, y + h, glass);
     rr(ctx, x, y, w, h, o.r === undefined ? th.radius : o.r, fill, {
       stroke: o.stroke || th.cardEdge, strokeW: 1, shadow: o.flat ? null : (o.shadow || (th.light ? th.shadowSoft : th.shadow)),
@@ -427,8 +510,9 @@ function houseMark(ctx, x, y, w, o = {}) {
 
 // ---------- правый верхний угол: жёлтая полоса и знак-домик ----------
 function cornerMark(ctx, th) {
-  poly(ctx, [[W - 150, 0], [W, 0], [W, 46]], 'rgba(255,198,30,0.13)', {});
-  houseMark(ctx, W - 58, 9, 30, { door: '#F3F0E9' });
+  const P = PRESETS[PRESET];
+  poly(ctx, [[W - 150, 0], [W, 0], [W, 46]], PRESETS[PRESET].light ? 'rgba(255,198,30,0.13)' : 'rgba(255,198,30,0.10)', {});
+  houseMark(ctx, W - 58, 9, 30, { door: P.door });
   poly(ctx, [[W - 12, 0], [W, 0], [W, H], [W - 12, H]], 'rgba(255,198,30,0.85)', {});
 }
 
@@ -438,7 +522,7 @@ function header(ctx, th, p, o) {
   const page = p;
   bg(ctx, th);
   let cy = 0;
-  if (th.light) cornerMark(ctx, th);
+  if (th.dark) cornerMark(ctx, th);
   if (kicker) {
     if (!th.dark) {
       rect(ctx, ML, 32, 24, 3, th.accent);
@@ -548,6 +632,6 @@ function kpi(ctx, th, x, y, w, h, o) {
 module.exports = {
   W, H, ML, MR, CW, C, THEMES, warnings, warn, registerFonts, tf, text, measure, wrap, para, fitText, fitSize,
   rr, rect, circle, line, poly, lg, rg, card, bar3d, header, footer, kpi, bg, bg3d, bgClassic, drawImg, shadow, noShadow,
-  createCanvas, PDFDocument, resetBottom, getBottom: () => _maxBottom, setEmitter, setLight, mcFill, mcText, houseMark, cornerMark, setPageMap, pageNum,
+  createCanvas, PDFDocument, resetBottom, getBottom: () => _maxBottom, setEmitter, setLight, mcFill, mcText, houseMark, cornerMark, setPageMap, pageNum, setPreset, preset, PRESETS,
   setClip: (v) => { CLIP = v; },
 };

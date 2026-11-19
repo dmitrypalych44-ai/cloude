@@ -10,7 +10,7 @@ function hbar(ctx, th, x, y, w, h, frac, o = {}) {
   else rr(ctx, x, y, fw, h, h / 2, o.color || lg(ctx, x, y, x + fw, y, [[0, '#FFE39B'], [1, '#E39B00']]), { shadow: { color: 'rgba(255,198,30,0.5)', blur: 10, y: 0 } });
 }
 
-const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
+const TH_LIGHT = () => !!U.THEMES['3d'].light;   // светлая ли сейчас 3D-сцена
 
 const slides = {};
 

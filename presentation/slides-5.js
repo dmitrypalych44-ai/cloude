@@ -23,12 +23,12 @@ function houseMark(ctx, x, y, w, o = {}) {
 }
 
 function logo(ctx, d, x, y, w) {
-  if (TH_LIGHT && d) {
+  if (TH_LIGHT() && d) {
     // светлая 3D-сцена: жёлтый домик + тёмный логотип-надпись
     const lh = w * 359 / 1281;              // высота логотипа как в исходной картинке
     const hh = lh * 0.98, hw = hh / 1.18;   // домик по высоте логотипа
-    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: '#F3F0E9' });
-    drawImg(ctx, 'wordmark-dark.png', x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
+    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: U.preset().door });
+    drawImg(ctx, U.preset().wordmark, x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
     return;
   }
   drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', x, y, w, w * 359 / 1281);
@@ -60,7 +60,7 @@ function divider(ctx, th, img, kicker, title, sub, num) {
   }
 }
 
-const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
+const TH_LIGHT = () => !!U.THEMES['3d'].light;   // светлая ли сейчас 3D-сцена
 
 const slides = {};
 

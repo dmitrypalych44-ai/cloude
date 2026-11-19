@@ -27,18 +27,18 @@ function logo(ctx, dOrX, x, y, w) {
   // поддержка вызова logo(ctx, x, y, w) и logo(ctx, d, x, y, w)
   let d = false, X = dOrX, Y = x, Wd = y;
   if (typeof dOrX === 'boolean') { d = dOrX; X = x; Y = y; Wd = w; }
-  if (TH_LIGHT && d) {
+  if (TH_LIGHT() && d) {
     // светлая 3D-сцена: жёлтый домик + тёмный логотип-надпись
     const lh = w * 359 / 1281;              // высота логотипа как в исходной картинке
     const hh = lh * 0.98, hw = hh / 1.18;   // домик по высоте логотипа
-    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: '#F3F0E9' });
-    drawImg(ctx, 'wordmark-dark.png', x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
+    houseMark(ctx, x, y + (lh - hh) / 2 - lh * 0.02, hw, { door: U.preset().door });
+    drawImg(ctx, U.preset().wordmark, x + hw + lh * 0.16, y + lh * 0.10, w * 0.735, lh * 0.80);
     return;
   }
   U.drawImg(ctx, d ? 'logo-light.png' : 'logo-dark.png', X, Y, Wd, Wd * 359 / 1281);
 }
 
-const TH_LIGHT = !!U.THEMES['3d'].light;   // светлая 3D-сцена
+const TH_LIGHT = () => !!U.THEMES['3d'].light;   // светлая ли сейчас 3D-сцена
 
 const slides = {};
 
