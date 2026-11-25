@@ -103,12 +103,13 @@ export const HomePage: React.FC = () => {
 
               {/* CTA Group */}
               <div className="flex flex-wrap items-center gap-3.5 pt-1">
-                <a
-                  href="#projects"
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('projects')?.scrollIntoView({ behavior: 'smooth' })}
                   className="inline-flex items-center gap-2.5 px-7 py-4 rounded-full bg-[#FFCC00] hover:bg-[#F2BE00] text-[#141414] font-extrabold text-sm sm:text-base shadow-sm transition-all"
                 >
                   Смотреть готовые решения <ArrowRight className="w-4 h-4" />
-                </a>
+                </button>
                 <Link
                   to="/anketa"
                   className="inline-flex items-center gap-2 px-6 py-4 rounded-full bg-[#141414] hover:bg-[#2A2A2A] text-white font-bold text-sm sm:text-base transition-all"
@@ -143,12 +144,13 @@ export const HomePage: React.FC = () => {
                       привилегии «Новосёлы −10%» и доставки.
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold">
-                      <a
-                        href="#contacts"
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('contacts')?.scrollIntoView({ behavior: 'smooth' })}
                         className="text-[#141414] underline hover:text-black/70"
                       >
                         Записаться на встречу →
-                      </a>
+                      </button>
                       <Link
                         to="/novosyoly"
                         className="text-[#D9232E] hover:underline"
@@ -223,10 +225,11 @@ export const HomePage: React.FC = () => {
       <section className="py-6 border-y border-black/10 bg-white overflow-hidden">
         <div className="animate-marquee gap-4 px-4">
           {[...marqueeItems, ...marqueeItems].map((item, idx) => (
-            <a
+            <button
               key={idx}
-              href="#tiles"
-              className="flex items-center gap-3.5 pr-6 pl-2.5 py-2 rounded-2xl bg-[#F7F5F0] hover:bg-[#FFCC00]/30 border border-black/5 transition-colors shrink-0"
+              type="button"
+              onClick={() => document.getElementById('tiles')?.scrollIntoView({ behavior: 'smooth' })}
+              className="text-left flex items-center gap-3.5 pr-6 pl-2.5 py-2 rounded-2xl bg-[#F7F5F0] hover:bg-[#FFCC00]/30 border border-black/5 transition-colors shrink-0"
             >
               <img
                 src={item.img}
@@ -237,7 +240,7 @@ export const HomePage: React.FC = () => {
                 <div className="text-sm font-extrabold text-[#141414]">{item.title}</div>
                 <div className="text-xs text-[#6E685F]">{item.sub}</div>
               </div>
-            </a>
+            </button>
           ))}
         </div>
       </section>

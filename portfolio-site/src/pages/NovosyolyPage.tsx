@@ -110,12 +110,13 @@ export const NovosyolyPage: React.FC = () => {
                 >
                   Оформить статус Новосёла −10% <ArrowRight className="w-4 h-4" />
                 </Link>
-                <a
-                  href="#calculator"
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('calculator')?.scrollIntoView({ behavior: 'smooth' })}
                   className="inline-flex items-center gap-2 px-6 py-4 rounded-full bg-[#141414] text-white font-extrabold text-sm hover:bg-black/85 transition-colors"
                 >
                   <Calculator className="w-4 h-4 text-[#FFCC00]" /> Калькулятор безлимитной выгоды
-                </a>
+                </button>
               </div>
             </div>
 

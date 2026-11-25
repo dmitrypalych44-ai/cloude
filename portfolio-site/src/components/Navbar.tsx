@@ -1,19 +1,29 @@
 import React, { useState } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Phone, MapPin, Menu, X, Sparkles, FileCheck2, ArrowUpRight, Download } from 'lucide-react';
 import { LemanaHouseBadge } from './LemanaLogo';
 import { SPECIALIST_INFO } from '../data/siteData';
 
 export const Navbar: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const goSection = (sectionId: string) => {
+    setMobileOpen(false);
+    navigate(`/?section=${sectionId}`);
+    setTimeout(() => {
+      const el = document.getElementById(sectionId);
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 80);
+  };
 
   const navLinks = [
     { to: '/', label: 'Главная' },
-    { to: '/#projects', label: 'Готовые решения', isAnchor: true },
-    { to: '/#tiles', label: 'Плитка Владивосток', isAnchor: true },
+    { to: 'projects', label: 'Готовые решения', isAnchor: true },
+    { to: 'tiles', label: 'Плитка Владивосток', isAnchor: true },
     { to: '/anketa', label: 'Анкета клиента' },
     { to: '/novosyoly', label: 'Новосёлы −10%', highlight: true },
-    { to: '/#contacts', label: 'Контакты', isAnchor: true },
+    { to: 'contacts', label: 'Контакты', isAnchor: true },
   ];
 
   return (
@@ -75,13 +85,14 @@ export const Navbar: React.FC = () => {
         <nav className="hidden xl:flex items-center gap-1">
           {navLinks.map((item) =>
             item.isAnchor ? (
-              <a
+              <button
                 key={item.label}
-                href={item.to}
+                type="button"
+                onClick={() => goSection(item.to)}
                 className="px-3.5 py-2 rounded-full text-sm font-semibold text-[#242424] hover:bg-black/5 transition-colors"
               >
                 {item.label}
-              </a>
+              </button>
             ) : (
               <NavLink
                 key={item.to}
@@ -143,14 +154,14 @@ export const Navbar: React.FC = () => {
         <div className="xl:hidden border-t border-black/10 bg-white px-4 pt-3 pb-6 space-y-2 shadow-xl">
           {navLinks.map((item) =>
             item.isAnchor ? (
-              <a
+              <button
                 key={item.label}
-                href={item.to}
-                onClick={() => setMobileOpen(false)}
-                className="block px-4 py-3 rounded-xl text-base font-bold text-[#141414] hover:bg-[#F7F5F0]"
+                type="button"
+                onClick={() => goSection(item.to)}
+                className="w-full text-left block px-4 py-3 rounded-xl text-base font-bold text-[#141414] hover:bg-[#F7F5F0]"
               >
                 {item.label}
-              </a>
+              </button>
             ) : (
               <Link
                 key={item.to}

@@ -33,14 +33,14 @@ export const Footer: React.FC = () => {
             </h4>
             <ul className="space-y-2.5 text-sm text-white/80">
               <li>
-                <a href="/#projects" className="hover:text-[#FFCC00] transition-colors">
+                <Link to="/?section=projects" className="hover:text-[#FFCC00] transition-colors">
                   Готовые решения ванных комнат
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="/#tiles" className="hover:text-[#FFCC00] transition-colors">
+                <Link to="/?section=tiles" className="hover:text-[#FFCC00] transition-colors">
                   Каталог плитки и керамогранита
-                </a>
+                </Link>
               </li>
               <li>
                 <Link to="/anketa" className="hover:text-[#FFCC00] transition-colors">
@@ -56,9 +56,9 @@ export const Footer: React.FC = () => {
                 </Link>
               </li>
               <li>
-                <a href="/#contacts" className="hover:text-[#FFCC00] transition-colors">
+                <Link to="/?section=contacts" className="hover:text-[#FFCC00] transition-colors">
                   Запись на 3D-проектирование
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
